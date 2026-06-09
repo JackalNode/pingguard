@@ -4,6 +4,10 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -12,27 +16,25 @@ jobs:
         include:
           - os: windows-latest
             name: windows
-            artifact: PingGuard-windows.exe
+            artifact_name: PingGuard-windows.exe
             binary: dist/PingGuard.exe
           - os: macos-latest
             name: macos
-            artifact: PingGuard-macos.zip
+            artifact_name: PingGuard-macos.zip
             binary: dist/PingGuard
           - os: ubuntu-latest
             name: linux
-            artifact: PingGuard-linux
+            artifact_name: PingGuard-linux
             binary: dist/PingGuard
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install Linux display dependencies
+      - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
@@ -47,38 +49,33 @@ jobs:
 
       - name: Build on Windows
         if: matrix.os == 'windows-latest'
-        run: >
-          pyinstaller --windowed --onefile
-          --icon=assets/icon.ico
-          --name PingGuard
-          --add-data "assets;assets"
-          main.py
+        run: pyinstaller --windowed --onefile --icon=assets/icon.ico --name PingGuard --add-data "assets;assets" main.py
 
       - name: Build on macOS
         if: matrix.os == 'macos-latest'
-        run: >
-          pyinstaller --windowed --onefile
-          --name PingGuard
-          --add-data "assets:assets"
-          main.py
+        run: pyinstaller --windowed --onefile --name PingGuard --add-data "assets:assets" main.py
 
       - name: Build on Linux
         if: matrix.os == 'ubuntu-latest'
-        run: >
-          pyinstaller --onefile
-          --name PingGuard
-          --add-data "assets:assets"
-          main.py
+        run: pyinstaller --onefile --name PingGuard --add-data "assets:assets" main.py
 
       - name: Zip macOS binary
         if: matrix.os == 'macos-latest'
         run: zip -j PingGuard-macos.zip dist/PingGuard
 
+      - name: Rename Linux binary
+        if: matrix.os == 'ubuntu-latest'
+        run: cp dist/PingGuard PingGuard-linux
+
+      - name: Rename Windows binary
+        if: matrix.os == 'windows-latest'
+        run: cp dist/PingGuard.exe PingGuard-windows.exe
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact_name }}
 
   release:
     needs: build
@@ -87,6 +84,8 @@ jobs:
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -100,9 +99,9 @@ jobs:
             | macOS | PingGuard-macos.zip | Beta — unzip and run |
             | Linux | PingGuard-linux | Beta — `chmod +x` then run |
           files: |
-            windows/PingGuard-windows.exe
-            macos/PingGuard-macos.zip
-            linux/PingGuard-linux
+            PingGuard-windows.exe
+            PingGuard-macos.zip
+            PingGuard-linux
           draft: false
           prerelease: false
         env:
