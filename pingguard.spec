@@ -5,8 +5,14 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    datas=[
+        ('assets/icon.ico', 'assets'),   # bundle icon so get_app_icon() finds it at runtime
+    ],
+    hiddenimports=[
+        'updater',
+        'packaging',
+        'packaging.version',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -35,5 +41,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['assets\\icon.ico'],
+    icon='assets/icon.ico',
 )

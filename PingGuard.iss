@@ -1,14 +1,14 @@
 ; PingGuard Inno Setup Installer Script
 ; Requires Inno Setup 6+ — https://jrsoftware.org/isinfo.php
-; Build: Open this file in Inno Setup Compiler and click Compile (Ctrl+F9)
+; Build: triggered automatically by GitHub Actions on version tag push
 
 #define MyAppName "PingGuard"
-#define MyAppVersion "2.0.3"
-#define MyAppPublisher "Jackal Products"
-#define MyAppURL "https://jackalproducts.itch.io/pingguard"
+#define MyAppVersion "2.0.4"
+#define MyAppPublisher "JackalNode"
+#define MyAppURL "https://jackalnode.itch.io/pingguard"
 #define MyAppExeName "PingGuard.exe"
-#define MySourceExe "dist\PingGuard.exe"
-#define MyIconFile "assets\icon.ico"
+#define MySourceExe SourcePath + "dist\PingGuard.exe"
+#define MyIconFile SourcePath + "assets\icon.ico"
 
 [Setup]
 AppId={{A3F7C2D1-88B4-4E6A-9F3D-512C8E4B7A90}
@@ -21,13 +21,13 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 
 ; Install to Program Files
-DefaultDirName={autopf}\{#MyAppName}
-DefaultGroupName={#MyAppName}
+DefaultDirName={autopf}\JackalNode\{#MyAppName}
+DefaultGroupName=JackalNode\{#MyAppName}
 DisableProgramGroupPage=yes
 
-; Output installer to project root
-OutputDir=installer
-OutputBaseFilename=PingGuard-Setup-{#MyAppVersion}
+; Output — SourcePath-relative so GitHub Actions cloud build works with zero changes
+OutputDir={#SourcePath}installer_output
+OutputBaseFilename=PingGuard_Setup_v{#MyAppVersion}
 
 ; Compression
 Compression=lzma2/ultra64
@@ -41,7 +41,7 @@ SetupIconFile={#MyIconFile}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
 
-; Permissions — install without needing admin if possible
+; Permissions
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 

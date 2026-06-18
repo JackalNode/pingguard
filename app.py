@@ -14,6 +14,7 @@ from settings import Settings, GameManager
 from ping_engine import PingWorker
 from main_window import MainWindow
 from logger import SessionLogger
+from updater import check_for_updates
 
 
 def get_app_icon():
@@ -101,6 +102,14 @@ class PingGuardApp(QObject):
 
         if not self.settings.get("start_minimized", True):
             self.window.show()
+
+        # Check for updates silently in the background on startup
+        check_for_updates(
+            "PingGuard",
+            self.qt_app.applicationVersion(),
+            "pingguard",
+            parent=self.window
+        )
 
         # Auto-check timer
         self._auto_timer = QTimer()
