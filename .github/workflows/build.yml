@@ -37,6 +37,16 @@ jobs:
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "PingGuard.iss"
 
+      - name: List output files (debug)
+        shell: powershell
+        run: |
+          echo "--- installer_output contents ---"
+          if (Test-Path "installer_output") { Get-ChildItem -Path "installer_output" -Recurse } else { echo "installer_output folder not found" }
+          echo "--- installer contents ---"
+          if (Test-Path "installer") { Get-ChildItem -Path "installer" -Recurse } else { echo "installer folder not found" }
+          echo "--- root exe files ---"
+          Get-ChildItem -Path "." -Filter "*.exe" -Recurse | Select-Object FullName
+
       - name: Get version from tag
         id: get_version
         shell: powershell
