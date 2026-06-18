@@ -40,11 +40,11 @@ DEFAULT_SETTINGS = {
     "start_minimized": True,
     "start_with_windows": False,
     "alert_threshold_ms": 150,         # alert if ping goes above this
-    "discord_webhook": "https://discord.com/api/webhooks/1513504673343078552/FMb7PLlskpWCk4gqXsVEUFOG5yOMgrYpO2YkAVgOV9h9PVLvE1AmIYmvXwIXT1S6FU9y",
+    # discord_webhook removed — lives in constants.py only, never in settings
     "user_region": "EU",
     "check_on_game_launch": True,
     "theme": "dark",
-    "version": "1.0.0",
+    "version": "2.0.4",
 }
 
 
@@ -59,6 +59,9 @@ class Settings:
                 with open(SETTINGS_FILE, "r") as f:
                     saved = json.load(f)
                 # Merge with defaults (adds new keys from updates)
+                # Also strip out any old discord_webhook that may exist in a
+                # user's saved settings.json from a previous install
+                saved.pop("discord_webhook", None)
                 self._data = {**DEFAULT_SETTINGS, **saved}
             except Exception:
                 self._data = DEFAULT_SETTINGS.copy()
@@ -84,7 +87,6 @@ class Settings:
 
     def __setitem__(self, key, value):
         self.set(key, value)
-
 
 
 def migrate_game_endpoints(games_list):

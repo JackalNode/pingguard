@@ -3,9 +3,20 @@ reporter.py - Sends "game not working" reports to Discord webhook
 Also handles crash reporting. Completely anonymous - no personal data.
 """
 import json
-import platform
 import sys
 from datetime import datetime
+
+
+def _get_version():
+    """Pull the live app version — never hardcode it here."""
+    try:
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app:
+            return app.applicationVersion()
+    except Exception:
+        pass
+    return "unknown"
 
 
 def send_report(webhook_url, game, issue_type, details, ping_history=None):
@@ -17,9 +28,9 @@ def send_report(webhook_url, game, issue_type, details, ping_history=None):
         return False, "No webhook configured"
 
     try:
-        import urllib.request
+        import requests
 
-        # Build the Discord embed
+        version = _get_version()
         color = 0xFF6B35 if issue_type == "game_not_working" else 0xFF0000
 
         history_text = ""
@@ -35,32 +46,28 @@ def send_report(webhook_url, game, issue_type, details, ping_history=None):
                 {"name": "Issue", "value": issue_type.replace("_", " ").title(), "inline": True},
                 {"name": "Game", "value": game["name"], "inline": True},
                 {"name": "Category", "value": game.get("category", "Unknown"), "inline": True},
-                {"name": "Endpoints tried", 
+                {"name": "Endpoints tried",
                  "value": "\n".join([f"{e['host']}:{e['port']}" for e in game.get("endpoints", [])]),
                  "inline": False},
                 {"name": "Last ping", "value": f"{game.get('last_ping', 'N/A')} ms", "inline": True},
                 {"name": "Platform", "value": sys.platform, "inline": True},
                 {"name": "Details", "value": details or "No details provided", "inline": False},
             ],
-            "footer": {"text": f"PingGuard v1.0.0 • {datetime.now().strftime('%Y-%m-%d %H:%M')}"},
+            "footer": {"text": f"PingGuard v{version} • {datetime.now().strftime('%Y-%m-%d %H:%M')}"},
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
 
         if history_text:
             embed["description"] = history_text
 
-        payload = json.dumps({"embeds": [embed]}).encode("utf-8")
-
-        req = urllib.request.Request(
+        resp = requests.post(
             webhook_url,
-            data=payload,
-            headers={"Content-Type": "application/json", "User-Agent": "PingGuard/1.0"},
-            method="POST"
+            json={"embeds": [embed]},
+            timeout=5
         )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            if resp.status in (200, 204):
-                return True, "Report sent successfully"
-            return False, f"HTTP {resp.status}"
+        if resp.status_code in (200, 204):
+            return True, "Report sent successfully"
+        return False, f"HTTP {resp.status_code}"
 
     except Exception as e:
         return False, str(e)
@@ -72,7 +79,9 @@ def send_crash_report(webhook_url, error_info):
         return
 
     try:
-        import urllib.request
+        import requests
+
+        version = _get_version()
 
         embed = {
             "title": "💥 Crash Report",
@@ -82,16 +91,13 @@ def send_crash_report(webhook_url, error_info):
                 {"name": "Platform", "value": sys.platform, "inline": True},
                 {"name": "Python", "value": sys.version.split()[0], "inline": True},
             ],
-            "footer": {"text": f"PingGuard v1.0.0 • {datetime.now().strftime('%Y-%m-%d %H:%M')}"},
+            "footer": {"text": f"PingGuard v{version} • {datetime.now().strftime('%Y-%m-%d %H:%M')}"},
         }
 
-        payload = json.dumps({"embeds": [embed]}).encode("utf-8")
-        req = urllib.request.Request(
+        requests.post(
             webhook_url,
-            data=payload,
-            headers={"Content-Type": "application/json", "User-Agent": "PingGuard/1.0"},
-            method="POST"
+            json={"embeds": [embed]},
+            timeout=5
         )
-        urllib.request.urlopen(req, timeout=5)
     except Exception:
         pass  # Never crash on crash reporting

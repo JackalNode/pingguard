@@ -33,8 +33,8 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)  # Keep running in tray
     app.setApplicationName("PingGuard")
-    app.setApplicationVersion("1.5.0")
-    app.setOrganizationName("PingGuard")
+    app.setApplicationVersion("2.0.4")   # ONE source of truth — bump this only when shipping a new version
+    app.setOrganizationName("JackalNode")
 
     # Set app icon
     from app import get_app_icon

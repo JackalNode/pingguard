@@ -14,6 +14,7 @@ from PyQt6.QtCore import QPointF
 from games import get_ping_status, DEFAULT_GAMES
 from add_game_dialog import AddGameDialog
 from report_dialog import ReportDialog
+from constants import DISCORD_REPORT_WEBHOOK
 import datetime
 
 
@@ -507,7 +508,7 @@ class MainWindow(QMainWindow):
                 self._populate_games()
 
     def _on_report(self, game):
-        webhook = self.settings.get("discord_webhook", "")
+        webhook = DISCORD_REPORT_WEBHOOK
         dialog = ReportDialog(game, webhook, self)
         dialog.exec()
 

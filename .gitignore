@@ -3,4 +3,4 @@ build/
 dist/
 installer_output/
 *.pyc
-*.spec
+constants.py
