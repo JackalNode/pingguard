@@ -3,7 +3,7 @@ name: Build and Release PingGuard
 on:
   push:
     tags:
-      - 'v*'   # triggers on any tag like v2.0.5, v2.1.0, v3.0.0 etc.
+      - 'v[0-9]*.[0-9]*.[0-9]*'   # only triggers on clean version tags like v2.0.5, not v2.0.5-debug
 
 permissions:
   contents: write   # required to create GitHub Releases
@@ -37,6 +37,7 @@ jobs:
           $tag = "${{ github.ref_name }}"
           $version = $tag.TrimStart('v')
           echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "Version is: $version"
 
       - name: Build with PyInstaller
         run: python -m PyInstaller pingguard.spec
@@ -44,9 +45,11 @@ jobs:
       - name: Build installer with Inno Setup
         shell: powershell
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-            /DMyAppVersion="${{ steps.get_version.outputs.VERSION }}" `
-            "PingGuard.iss"
+          $version = "${{ steps.get_version.outputs.VERSION }}"
+          echo "Building installer for version: $version"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion="$version" "PingGuard.iss"
+          echo "--- installer_output contents ---"
+          Get-ChildItem -Path "installer_output" -Recurse
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
