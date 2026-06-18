@@ -30,23 +30,6 @@ jobs:
           $content = "DISCORD_REPORT_WEBHOOK = `"${{ secrets.DISCORD_REPORT_WEBHOOK }}`""
           Set-Content -Path "constants.py" -Value $content
 
-      - name: Build with PyInstaller
-        run: python -m PyInstaller pingguard.spec
-
-      - name: Build installer with Inno Setup
-        run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "PingGuard.iss"
-
-      - name: List output files (debug)
-        shell: powershell
-        run: |
-          echo "--- installer_output contents ---"
-          if (Test-Path "installer_output") { Get-ChildItem -Path "installer_output" -Recurse } else { echo "installer_output folder not found" }
-          echo "--- installer contents ---"
-          if (Test-Path "installer") { Get-ChildItem -Path "installer" -Recurse } else { echo "installer folder not found" }
-          echo "--- root exe files ---"
-          Get-ChildItem -Path "." -Filter "*.exe" -Recurse | Select-Object FullName
-
       - name: Get version from tag
         id: get_version
         shell: powershell
@@ -54,6 +37,16 @@ jobs:
           $tag = "${{ github.ref_name }}"
           $version = $tag.TrimStart('v')
           echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build with PyInstaller
+        run: python -m PyInstaller pingguard.spec
+
+      - name: Build installer with Inno Setup
+        shell: powershell
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            /DMyAppVersion="${{ steps.get_version.outputs.VERSION }}" `
+            "PingGuard.iss"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
