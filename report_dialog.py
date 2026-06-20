@@ -19,47 +19,65 @@ ISSUE_TYPES = [
 
 
 class ReportDialog(QDialog):
-    def __init__(self, game, webhook_url, parent=None):
+    def __init__(self, game, webhook_url, theme, parent=None):
         super().__init__(parent)
         self.game = game
         self.webhook_url = webhook_url
+        self.theme = theme
         self.setWindowTitle(f"Report Issue — {game['name']}")
         self.setModal(True)
         self.setFixedSize(440, 360)
-        self.setStyleSheet("""
-            QDialog { background: #13131f; color: #e0e0e0; }
-            QLabel { color: #e0e0e0; }
-            QTextEdit, QComboBox {
-                background: #1e1e2e;
-                border: 1px solid #3a3a5e;
-                border-radius: 6px;
-                padding: 6px 10px;
-                color: #e0e0e0;
-                font-size: 12px;
-            }
-        """)
+        self.setStyleSheet(self._stylesheet())
         self._build_ui()
 
+    def _stylesheet(self):
+        t = self.theme
+        return f"""
+            QDialog {{ background: {t['bg']}; color: {t['text']}; }}
+            QLabel {{ color: {t['text']}; }}
+            QTextEdit, QComboBox {{
+                background: {t['surface']};
+                border: 1px solid {t['border']};
+                border-radius: 6px;
+                padding: 4px 10px;
+                min-height: 20px;
+                color: {t['text']};
+                font-size: 12px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                background: {t['surface']};
+                color: {t['text']};
+                border: 1px solid {t['border']};
+                selection-background-color: {t['accent']};
+                selection-color: white;
+            }}
+        """
+
     def _build_ui(self):
+        t = self.theme
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
         title = QLabel(f"⚠ Report Issue: {self.game['name']}")
         title.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
-        title.setStyleSheet("color: #ff9800;")
+        title.setStyleSheet(f"color: {t['warning']};")
         layout.addWidget(title)
 
         info = QLabel(
             "This sends an anonymous report to the developer so the game\n"
             "can be fixed in a future update. No personal data is sent."
         )
-        info.setStyleSheet("color: #666680; font-size: 11px;")
+        info.setStyleSheet(f"color: {t['text_muted']}; font-size: 11px;")
         layout.addWidget(info)
 
         # Issue type
         type_label = QLabel("What's the issue?")
-        type_label.setStyleSheet("color: #aaaacc; font-size: 11px; font-weight: bold;")
+        type_label.setStyleSheet(f"color: {t['label_secondary']}; font-size: 11px; font-weight: bold;")
         layout.addWidget(type_label)
 
         self.issue_combo = QComboBox()
@@ -69,7 +87,7 @@ class ReportDialog(QDialog):
 
         # Details
         details_label = QLabel("Additional details (optional):")
-        details_label.setStyleSheet("color: #aaaacc; font-size: 11px; font-weight: bold;")
+        details_label.setStyleSheet(f"color: {t['label_secondary']}; font-size: 11px; font-weight: bold;")
         layout.addWidget(details_label)
 
         self.details_input = QTextEdit()
@@ -89,19 +107,19 @@ class ReportDialog(QDialog):
         btn_row = QHBoxLayout()
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setFixedHeight(36)
-        cancel_btn.setStyleSheet("""
-            QPushButton { background: #1e1e2e; color: #e0e0e0; border: 1px solid #3a3a5e;
-                          border-radius: 6px; padding: 4px 16px; }
-            QPushButton:hover { background: #262637; }
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{ background: {t['surface']}; color: {t['text']}; border: 1px solid {t['border']};
+                          border-radius: 6px; padding: 4px 16px; }}
+            QPushButton:hover {{ background: {t['surface_hover']}; }}
         """)
         cancel_btn.clicked.connect(self.reject)
 
         self.send_btn = QPushButton("Send Report")
         self.send_btn.setFixedHeight(36)
-        self.send_btn.setStyleSheet("""
-            QPushButton { background: #ff6b35; color: white; border: none;
-                          border-radius: 6px; padding: 4px 16px; font-weight: bold; }
-            QPushButton:hover { background: #ff8555; }
+        self.send_btn.setStyleSheet(f"""
+            QPushButton {{ background: {t['btn_report_bg']}; color: white; border: none;
+                          border-radius: 6px; padding: 4px 16px; font-weight: bold; }}
+            QPushButton:hover {{ background: {t['btn_report_hover']}; }}
         """)
         self.send_btn.clicked.connect(self._send)
 
@@ -110,9 +128,10 @@ class ReportDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _send(self):
+        t = self.theme
         if not self.webhook_url:
             self.status_label.setText("⚠ No webhook configured in settings.")
-            self.status_label.setStyleSheet("color: #ff9800; font-size: 11px;")
+            self.status_label.setStyleSheet(f"color: {t['warning']}; font-size: 11px;")
             return
 
         self.send_btn.setEnabled(False)
@@ -126,10 +145,10 @@ class ReportDialog(QDialog):
 
         if success:
             self.status_label.setText("✓ Report sent! Thank you.")
-            self.status_label.setStyleSheet("color: #00e676; font-size: 11px;")
+            self.status_label.setStyleSheet(f"color: {t['success']}; font-size: 11px;")
             self.send_btn.setText("Sent!")
         else:
             self.status_label.setText(f"✗ Failed to send: {msg}")
-            self.status_label.setStyleSheet("color: #f44336; font-size: 11px;")
+            self.status_label.setStyleSheet(f"color: {t['danger']}; font-size: 11px;")
             self.send_btn.setText("Send Report")
             self.send_btn.setEnabled(True)

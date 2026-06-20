@@ -14,40 +14,58 @@ ICONS = ["🎮", "🎯", "🔫", "⚔️", "🏆", "🛡️", "💥", "🚀", "�
 
 
 class AddGameDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, theme, parent=None):
         super().__init__(parent)
+        self.theme = theme
         self.setWindowTitle("Add Game")
         self.setModal(True)
         self.setFixedSize(420, 400)
-        self.setStyleSheet("""
-            QDialog { background: #13131f; color: #e0e0e0; }
-            QLabel { color: #e0e0e0; }
-            QLineEdit, QComboBox, QSpinBox {
-                background: #1e1e2e;
-                border: 1px solid #3a3a5e;
-                border-radius: 6px;
-                padding: 6px 10px;
-                color: #e0e0e0;
-                font-size: 12px;
-            }
-            QLineEdit:focus, QComboBox:focus {
-                border-color: #6666ff;
-            }
-        """)
+        self.setStyleSheet(self._stylesheet())
         self._build_ui()
 
+    def _stylesheet(self):
+        t = self.theme
+        return f"""
+            QDialog {{ background: {t['bg']}; color: {t['text']}; }}
+            QLabel {{ color: {t['text']}; }}
+            QLineEdit, QComboBox, QSpinBox {{
+                background: {t['surface']};
+                border: 1px solid {t['border']};
+                border-radius: 6px;
+                padding: 4px 10px;
+                min-height: 20px;
+                color: {t['text']};
+                font-size: 12px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                background: {t['surface']};
+                color: {t['text']};
+                border: 1px solid {t['border']};
+                selection-background-color: {t['accent']};
+                selection-color: white;
+            }}
+            QLineEdit:focus, QComboBox:focus {{
+                border-color: {t['accent_hover']};
+            }}
+        """
+
     def _build_ui(self):
+        t = self.theme
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
         title = QLabel("Add a Game")
         title.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
-        title.setStyleSheet("color: #e0e0ff;")
+        title.setStyleSheet(f"color: {t['text_bright']};")
         layout.addWidget(title)
 
         subtitle = QLabel("PingGuard will test the connection to this game's servers.")
-        subtitle.setStyleSheet("color: #666680; font-size: 11px;")
+        subtitle.setStyleSheet(f"color: {t['text_muted']}; font-size: 11px;")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
 
@@ -89,19 +107,19 @@ class AddGameDialog(QDialog):
         btn_row = QHBoxLayout()
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setFixedHeight(36)
-        cancel_btn.setStyleSheet("""
-            QPushButton { background: #1e1e2e; color: #e0e0e0; border: 1px solid #3a3a5e;
-                          border-radius: 6px; padding: 4px 16px; }
-            QPushButton:hover { background: #262637; }
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{ background: {t['surface']}; color: {t['text']}; border: 1px solid {t['border']};
+                          border-radius: 6px; padding: 4px 16px; }}
+            QPushButton:hover {{ background: {t['surface_hover']}; }}
         """)
         cancel_btn.clicked.connect(self.reject)
 
         add_btn = QPushButton("Add Game")
         add_btn.setFixedHeight(36)
-        add_btn.setStyleSheet("""
-            QPushButton { background: #4c4cff; color: white; border: none;
-                          border-radius: 6px; padding: 4px 16px; font-weight: bold; }
-            QPushButton:hover { background: #6666ff; }
+        add_btn.setStyleSheet(f"""
+            QPushButton {{ background: {t['accent']}; color: white; border: none;
+                          border-radius: 6px; padding: 4px 16px; font-weight: bold; }}
+            QPushButton:hover {{ background: {t['accent_hover']}; }}
         """)
         add_btn.clicked.connect(self.accept)
 

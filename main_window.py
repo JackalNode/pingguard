@@ -9,19 +9,75 @@ from PyQt6.QtWidgets import (
     QTextEdit, QFileDialog, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
-from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QIcon, QPixmap, QBrush, QPolygonF
+from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QIcon, QPixmap, QBrush, QPolygonF, QPainterPath, QTransform
 from PyQt6.QtCore import QPointF
 from games import get_ping_status, DEFAULT_GAMES
 from add_game_dialog import AddGameDialog
 from report_dialog import ReportDialog
 from constants import DISCORD_REPORT_WEBHOOK
+from theme import get_theme
 import datetime
+import sys
+import os
+
+
+def resource_path(relative_path):
+    """Get the absolute path to a bundled resource (works both in dev and
+    in the PyInstaller-built .exe, where assets are unpacked to sys._MEIPASS)."""
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
+
+def make_gear_icon(color, size=18):
+    """Draws a crisp vector gear/cog icon at any size and any color.
+    Replaces relying on the unicode '⚙' glyph, whose appearance varies
+    wildly (sometimes barely recognizable as a gear) depending on which
+    font the OS falls back to render it with."""
+    scale = 4  # draw oversized, then downscale for clean anti-aliased edges
+    s = size * scale
+    pm = QPixmap(s, s)
+    pm.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    cx, cy = s / 2, s / 2
+    body_r = s * 0.30
+    hole_r = s * 0.13
+    tooth_w = s * 0.17
+    tooth_h = s * 0.16
+    tooth_dist = s * 0.34
+    teeth = 8
+
+    path = QPainterPath()
+    path.addEllipse(QPointF(cx, cy), body_r, body_r)
+
+    for i in range(teeth):
+        angle = (360 / teeth) * i
+        tooth = QPainterPath()
+        tooth.addRoundedRect(-tooth_w / 2, -tooth_dist - tooth_h / 2, tooth_w, tooth_h, 3, 3)
+        transform = QTransform()
+        transform.translate(cx, cy)
+        transform.rotate(angle)
+        path = path.united(transform.map(tooth))
+
+    hole = QPainterPath()
+    hole.addEllipse(QPointF(cx, cy), hole_r, hole_r)
+    path = path.subtracted(hole)
+
+    painter.setBrush(QBrush(QColor(color)))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawPath(path)
+    painter.end()
+
+    pm = pm.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    return QIcon(pm)
 
 
 class PingBar(QWidget):
     """Mini ping history sparkline graph."""
-    def __init__(self, parent=None):
+    def __init__(self, theme, parent=None):
         super().__init__(parent)
+        self.theme = theme
         self.history = []
         self.setMinimumSize(80, 30)
         self.setMaximumSize(120, 30)
@@ -48,7 +104,7 @@ class PingBar(QWidget):
             y = h - margin - ((val - min_val) / (max_val - min_val)) * (h - 2 * margin)
             points.append((x, y))
 
-        _, color = get_ping_status(self.history[-1])
+        _, color = get_ping_status(self.history[-1], self.theme)
         pen = QPen(QColor(color), 1.5)
         painter.setPen(pen)
 
@@ -59,9 +115,10 @@ class PingBar(QWidget):
 
 class PingDot(QWidget):
     """Status dot."""
-    def __init__(self, parent=None):
+    def __init__(self, theme, parent=None):
         super().__init__(parent)
-        self.color = "#888888"
+        self.theme = theme
+        self.color = theme["ping_unknown"]
         self.setFixedSize(14, 14)
 
     def set_color(self, color):
@@ -78,10 +135,11 @@ class PingDot(QWidget):
 
 class PingHistoryChart(QWidget):
     """Expanded full ping history chart with filled area, gridlines, stats."""
-    def __init__(self, parent=None):
+    def __init__(self, theme, parent=None):
         super().__init__(parent)
+        self.theme = theme
         self.history = []   # list of ms values (ints)
-        self.color = "#00e676"
+        self.color = theme["ping_excellent"]
         self.setMinimumHeight(110)
         self.setMaximumHeight(110)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -94,6 +152,7 @@ class PingHistoryChart(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        t = self.theme
 
         w, h = self.width(), self.height()
         left_margin = 28
@@ -105,10 +164,10 @@ class PingHistoryChart(QWidget):
         chart_h = h - top_margin - bottom_margin
 
         # Background
-        painter.fillRect(0, 0, w, h, QColor("#13131f"))
+        painter.fillRect(0, 0, w, h, QColor(t["bg"]))
 
         if not self.history or len(self.history) < 2:
-            painter.setPen(QColor("#444466"))
+            painter.setPen(QColor(t["text_dim"]))
             painter.drawText(0, 0, w, h, Qt.AlignmentFlag.AlignCenter, "No data yet")
             return
 
@@ -116,7 +175,7 @@ class PingHistoryChart(QWidget):
         min_val = 0
 
         # Gridlines + Y labels
-        grid_pen = QPen(QColor("#1e1e35"), 1)
+        grid_pen = QPen(QColor(t["chart_grid"]), 1)
         grid_pen.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(grid_pen)
         label_font = QFont("Consolas", 7)
@@ -128,7 +187,7 @@ class PingHistoryChart(QWidget):
             y = top_margin + chart_h - (grid_val / max_val) * chart_h
             painter.setPen(grid_pen)
             painter.drawLine(left_margin, int(y), left_margin + chart_w, int(y))
-            painter.setPen(QColor("#444466"))
+            painter.setPen(QColor(t["text_dim"]))
             painter.drawText(0, int(y) - 6, left_margin - 2, 12,
                              Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                              str(grid_val))
@@ -170,7 +229,7 @@ class PingHistoryChart(QWidget):
         # Stats bar at bottom
         stats_y = h - bottom_margin + 6
         painter.setFont(QFont("Consolas", 8))
-        painter.setPen(QColor("#667788"))
+        painter.setPen(QColor(t["chart_stats_text"]))
 
         mn = min(self.history)
         avg = int(sum(self.history) / len(self.history))
@@ -187,25 +246,26 @@ class GameRow(QFrame):
     """A single game row — click to expand/collapse ping history chart."""
     report_clicked = pyqtSignal(dict)
 
-    def __init__(self, game, parent=None):
+    def __init__(self, game, theme, parent=None):
         super().__init__(parent)
         self.game = game
+        self.theme = theme
         self._expanded = False
         self._history = []
         self._last_ms = None
-        self._last_color = "#888888"
+        self._last_color = theme["ping_unknown"]
 
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("""
-            GameRow {
-                background: #1e1e2e;
+        self.setStyleSheet(f"""
+            GameRow {{
+                background: {theme['surface']};
                 border-radius: 8px;
                 margin: 2px 0;
-            }
-            GameRow:hover {
-                background: #222235;
-            }
+            }}
+            GameRow:hover {{
+                background: {theme['row_hover']};
+            }}
         """)
 
         outer = QVBoxLayout(self)
@@ -219,7 +279,7 @@ class GameRow(QFrame):
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(10)
 
-        self.dot = PingDot()
+        self.dot = PingDot(theme)
         layout.addWidget(self.dot)
 
         icon_label = QLabel(game.get("icon", "🎮"))
@@ -231,21 +291,21 @@ class GameRow(QFrame):
         name_layout.setSpacing(1)
         self.name_label = QLabel(game["name"])
         self.name_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        self.name_label.setStyleSheet("color: #e0e0e0;")
+        self.name_label.setStyleSheet(f"color: {theme['text']};")
         self.category_label = QLabel(game.get("category", "") + " • " + game.get("region_note", ""))
         self.category_label.setFont(QFont("Segoe UI", 8))
-        self.category_label.setStyleSheet("color: #666680;")
+        self.category_label.setStyleSheet(f"color: {theme['text_muted']};")
         name_layout.addWidget(self.name_label)
         name_layout.addWidget(self.category_label)
         layout.addLayout(name_layout)
         layout.addStretch()
 
-        self.spark = PingBar()
+        self.spark = PingBar(theme)
         layout.addWidget(self.spark)
 
         self.ping_label = QLabel("—")
         self.ping_label.setFont(QFont("Consolas", 13, QFont.Weight.Bold))
-        self.ping_label.setStyleSheet("color: #888888;")
+        self.ping_label.setStyleSheet(f"color: {theme['text_faint']};")
         self.ping_label.setFixedWidth(65)
         self.ping_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.ping_label)
@@ -254,18 +314,18 @@ class GameRow(QFrame):
         self.report_btn.setToolTip("Report this game isn't working correctly")
         self.report_btn.setFixedSize(28, 28)
         self.report_btn.setVisible(False)
-        self.report_btn.setStyleSheet("""
-            QPushButton {
+        self.report_btn.setStyleSheet(f"""
+            QPushButton {{
                 background: transparent;
                 border: none;
-                color: #888888;
+                color: {theme['text_faint']};
                 font-size: 14px;
                 border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: #33334a;
-                color: #ff9800;
-            }
+            }}
+            QPushButton:hover {{
+                background: {theme['report_hover_bg']};
+                color: {theme['warning']};
+            }}
         """)
         self.report_btn.clicked.connect(self._on_report_clicked)
         layout.addWidget(self.report_btn)
@@ -281,10 +341,10 @@ class GameRow(QFrame):
 
         self.chart_label = QLabel("▴ ping history")
         self.chart_label.setFont(QFont("Segoe UI", 7))
-        self.chart_label.setStyleSheet("color: #444466;")
+        self.chart_label.setStyleSheet(f"color: {theme['text_dim']};")
         chart_layout.addWidget(self.chart_label)
 
-        self.chart = PingHistoryChart()
+        self.chart = PingHistoryChart(theme)
         chart_layout.addWidget(self.chart)
 
         self.chart_panel.hide()
@@ -319,7 +379,7 @@ class GameRow(QFrame):
         super().leaveEvent(event)
 
     def update_ping(self, ms, history):
-        status, color = get_ping_status(ms)
+        status, color = get_ping_status(ms, self.theme)
         self._last_ms = ms
         self._last_color = color
         self._history = history
@@ -332,7 +392,7 @@ class GameRow(QFrame):
             self.ping_label.setStyleSheet(f"color: {color};")
         else:
             self.ping_label.setText("—")
-            self.ping_label.setStyleSheet("color: #555566;")
+            self.ping_label.setStyleSheet(f"color: {self.theme['text_very_dim']};")
 
         # Refresh chart if expanded
         if self._expanded:
@@ -349,15 +409,29 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.ping_worker = ping_worker
         self.game_rows = {}
+        self.theme = get_theme(self.settings.get("theme", "dark"))
 
         self.setWindowTitle("PingGuard")
+        self.setWindowIcon(QIcon(resource_path("assets/icon.ico")))
         self.setMinimumSize(520, 600)
         self.resize(560, 680)
         self.setStyleSheet(self._stylesheet())
 
         self._build_ui()
 
+    def apply_theme(self):
+        """Re-read the active theme from settings and rebuild the UI in the
+        new colors immediately — no restart required."""
+        self.theme = get_theme(self.settings.get("theme", "dark"))
+        self.setStyleSheet(self._stylesheet())
+        old_central = self.centralWidget()
+        self.game_rows = {}
+        self._build_ui()
+        if old_central:
+            old_central.deleteLater()
+
     def _build_ui(self):
+        t = self.theme
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
@@ -368,24 +442,26 @@ class MainWindow(QMainWindow):
         header = QHBoxLayout()
         title = QLabel("🎮 PingGuard")
         title.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
-        title.setStyleSheet("color: #e0e0ff;")
+        title.setStyleSheet(f"color: {t['text_bright']};")
         header.addWidget(title)
         header.addStretch()
 
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: #666680; font-size: 11px;")
+        self.status_label.setStyleSheet(f"color: {t['text_muted']}; font-size: 11px;")
         header.addWidget(self.status_label)
 
         self.check_btn = QPushButton("Check Now")
-        self.check_btn.setFixedHeight(34)
-        self.check_btn.setStyleSheet(self._button_style("#4c4cff", "#6666ff"))
+        self.check_btn.setFixedHeight(36)
+        self.check_btn.setStyleSheet(self._button_style(t['accent'], t['accent_hover'], text_color="white"))
         self.check_btn.clicked.connect(self._on_check_now)
         header.addWidget(self.check_btn)
 
-        settings_btn = QPushButton("⚙")
+        settings_btn = QPushButton()
+        settings_btn.setIcon(make_gear_icon(t['text']))
+        settings_btn.setIconSize(QSize(18, 18))
         settings_btn.setFixedSize(34, 34)
         settings_btn.setToolTip("Settings")
-        settings_btn.setStyleSheet(self._button_style("#2a2a3e", "#3a3a5e"))
+        settings_btn.setStyleSheet(self._button_style(t['btn_neutral_bg'], t['btn_neutral_hover']))
         settings_btn.clicked.connect(self.settings_requested.emit)
         header.addWidget(settings_btn)
 
@@ -393,9 +469,9 @@ class MainWindow(QMainWindow):
 
         # Running games indicator
         self.running_bar = QLabel("")
-        self.running_bar.setStyleSheet("""
-            background: #1a1a2e;
-            color: #00e676;
+        self.running_bar.setStyleSheet(f"""
+            background: {t['surface_alt']};
+            color: {t['success']};
             border-radius: 6px;
             padding: 4px 10px;
             font-size: 11px;
@@ -405,7 +481,7 @@ class MainWindow(QMainWindow):
 
         # Next check countdown
         self.countdown_label = QLabel("")
-        self.countdown_label.setStyleSheet("color: #444466; font-size: 10px;")
+        self.countdown_label.setStyleSheet(f"color: {t['text_dim']}; font-size: 10px;")
         self.countdown_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         main_layout.addWidget(self.countdown_label)
 
@@ -429,14 +505,14 @@ class MainWindow(QMainWindow):
         bottom = QHBoxLayout()
         add_btn = QPushButton("+ Add Game")
         add_btn.setFixedHeight(32)
-        add_btn.setStyleSheet(self._button_style("#1e3a1e", "#2a502a", text_color="#69f0ae"))
+        add_btn.setStyleSheet(self._button_style(t['btn_success_bg'], t['btn_success_hover'], text_color=t['btn_success_text']))
         add_btn.clicked.connect(self._on_add_game)
         bottom.addWidget(add_btn)
         bottom.addStretch()
 
         open_logs_btn = QPushButton("📁 Session Logs")
         open_logs_btn.setFixedHeight(32)
-        open_logs_btn.setStyleSheet(self._button_style("#1a1a2e", "#262637"))
+        open_logs_btn.setStyleSheet(self._button_style(t['btn_logs_bg'], t['btn_logs_hover']))
         open_logs_btn.clicked.connect(self._open_logs)
         bottom.addWidget(open_logs_btn)
 
@@ -454,7 +530,7 @@ class MainWindow(QMainWindow):
         for game in games:
             if not game.get("enabled", True):
                 continue
-            row = GameRow(game)
+            row = GameRow(game, self.theme)
             row.report_clicked.connect(self._on_report)
 
             if game.get("last_ping") is not None:
@@ -500,7 +576,7 @@ class MainWindow(QMainWindow):
         self.check_now_requested.emit()
 
     def _on_add_game(self):
-        dialog = AddGameDialog(self)
+        dialog = AddGameDialog(self.theme, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             game_data = dialog.get_game_data()
             if game_data:
@@ -509,7 +585,7 @@ class MainWindow(QMainWindow):
 
     def _on_report(self, game):
         webhook = DISCORD_REPORT_WEBHOOK
-        dialog = ReportDialog(game, webhook, self)
+        dialog = ReportDialog(game, webhook, self.theme, self)
         dialog.exec()
 
     def _open_logs(self):
@@ -526,33 +602,36 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Logs", f"Logs are saved to:\n{LOGS_DIR}")
 
     def _stylesheet(self):
-        return """
-            QMainWindow, QWidget {
-                background-color: #13131f;
-                color: #e0e0e0;
-            }
-            QScrollBar:vertical {
-                background: #1a1a2e;
+        t = self.theme
+        return f"""
+            QMainWindow, QWidget {{
+                background-color: {t['bg']};
+                color: {t['text']};
+            }}
+            QScrollBar:vertical {{
+                background: {t['scrollbar_track']};
                 width: 6px;
                 border-radius: 3px;
-            }
-            QScrollBar::handle:vertical {
-                background: #3a3a5e;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {t['scrollbar_handle']};
                 border-radius: 3px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
                 height: 0;
-            }
+            }}
         """
 
-    def _button_style(self, bg, hover_bg, text_color="#e0e0e0"):
+    def _button_style(self, bg, hover_bg, text_color=None):
+        if text_color is None:
+            text_color = self.theme['text']
         return f"""
             QPushButton {{
                 background: {bg};
                 color: {text_color};
                 border: none;
                 border-radius: 6px;
-                padding: 4px 14px;
+                padding: 2px 14px;
                 font-size: 12px;
             }}
             QPushButton:hover {{
@@ -562,6 +641,6 @@ class MainWindow(QMainWindow):
                 background: {bg};
             }}
             QPushButton:disabled {{
-                color: #444466;
+                color: {self.theme['text_dim']};
             }}
         """

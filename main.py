@@ -21,6 +21,17 @@ def check_single_instance():
 def main():
     check_single_instance()
 
+    # Tell Windows this process is "PingGuard", not "Python" — without this,
+    # Windows attributes notifications and taskbar grouping to the underlying
+    # Python runtime instead of the app itself. Must be set before QApplication
+    # is created.
+    if sys.platform == "win32":
+        import ctypes
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("JackalNode.PingGuard")
+        except Exception:
+            pass
+
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtCore import Qt
     from app import PingGuardApp
@@ -33,7 +44,7 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)  # Keep running in tray
     app.setApplicationName("PingGuard")
-    app.setApplicationVersion("2.0.6")   # ONE source of truth — bump this only when shipping
+    app.setApplicationVersion("2.1.0")   # ONE source of truth — bump this only when shipping
     app.setOrganizationName("JackalNode")
 
     # Set app icon

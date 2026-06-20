@@ -15,6 +15,7 @@ from ping_engine import PingWorker
 from main_window import MainWindow
 from logger import SessionLogger
 from updater import check_for_updates
+from theme import get_theme
 
 
 def get_app_icon():
@@ -130,25 +131,37 @@ class PingGuardApp(QObject):
         wizard = SetupWizard(self.settings, self.game_manager)
         wizard.exec()
 
+    def _menu_stylesheet(self):
+        t = get_theme(self.settings.get("theme", "dark"))
+        return f"""
+            QMenu {{
+                background: {t['surface']};
+                color: {t['text']};
+                border: 1px solid {t['border']};
+                border-radius: 8px;
+                padding: 4px;
+                font-size: 12px;
+            }}
+            QMenu::item {{ padding: 8px 20px; border-radius: 4px; }}
+            QMenu::item:selected {{ background: {t['border']}; }}
+            QMenu::separator {{ height: 1px; background: {t['border_alt']}; margin: 4px 0; }}
+        """
+
+    def apply_theme(self):
+        """Called after Settings is saved — re-themes the tray menu and the
+        main window live, no restart needed."""
+        if self.tray and self.tray.contextMenu():
+            self.tray.contextMenu().setStyleSheet(self._menu_stylesheet())
+        if self.window:
+            self.window.apply_theme()
+
     def _setup_tray(self):
         self.tray = QSystemTrayIcon()
         self.tray.setIcon(get_app_icon())
         self.tray.setToolTip("PingGuard — Click to open")
 
         menu = QMenu()
-        menu.setStyleSheet("""
-            QMenu {
-                background: #1e1e2e;
-                color: #e0e0e0;
-                border: 1px solid #3a3a5e;
-                border-radius: 8px;
-                padding: 4px;
-                font-size: 12px;
-            }
-            QMenu::item { padding: 8px 20px; border-radius: 4px; }
-            QMenu::item:selected { background: #3a3a5e; }
-            QMenu::separator { height: 1px; background: #2a2a3e; margin: 4px 0; }
-        """)
+        menu.setStyleSheet(self._menu_stylesheet())
 
         open_action = menu.addAction("🎮  Open PingGuard")
         open_action.triggered.connect(self._show_window)
@@ -274,6 +287,8 @@ class PingGuardApp(QObject):
             self._apply_startup_setting()
             # Reset timer with new interval
             self._countdown = self.settings.get("auto_check_interval", 120)
+            # Re-theme tray menu + main window live
+            self.apply_theme()
 
     def _apply_startup_setting(self):
         """Set or remove Windows startup registry key."""

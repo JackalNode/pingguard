@@ -3,7 +3,7 @@
 ; Build: triggered automatically by GitHub Actions on version tag push
 
 #define MyAppName "PingGuard"
-#define MyAppVersion "2.0.6"
+#define MyAppVersion "2.1.0"
 #define MyAppPublisher "JackalNode"
 #define MyAppURL "https://jackalnode.itch.io/pingguard"
 #define MyAppExeName "PingGuard.exe"

@@ -286,17 +286,44 @@ PING_THRESHOLDS = {
     # above 150 = critical
 }
 
-def get_ping_status(ms):
-    """Return status label and color for a given ping value."""
+_DEFAULT_PING_COLORS = {
+    "unknown": "#888888",
+    "excellent": "#00e676",
+    "good": "#69f0ae",
+    "fair": "#ffeb3b",
+    "poor": "#ff9800",
+    "critical": "#f44336",
+}
+
+_PING_THEME_KEY = {
+    "unknown": "ping_unknown",
+    "excellent": "ping_excellent",
+    "good": "ping_good",
+    "fair": "ping_fair",
+    "poor": "ping_poor",
+    "critical": "ping_critical",
+}
+
+
+def get_ping_status(ms, theme=None):
+    """Return (status_label, color) for a given ping value.
+
+    Pass the active theme dict to get light/dark-safe colors (e.g. a darker
+    green on light mode for contrast against white). If no theme is given,
+    falls back to the original dark-mode colors — old call sites that don't
+    know about themes yet keep working unchanged."""
     if ms is None:
-        return "unknown", "#888888"
-    if ms < PING_THRESHOLDS["excellent"]:
-        return "excellent", "#00e676"
+        status = "unknown"
+    elif ms < PING_THRESHOLDS["excellent"]:
+        status = "excellent"
     elif ms < PING_THRESHOLDS["good"]:
-        return "good", "#69f0ae"
+        status = "good"
     elif ms < PING_THRESHOLDS["fair"]:
-        return "fair", "#ffeb3b"
+        status = "fair"
     elif ms < PING_THRESHOLDS["poor"]:
-        return "poor", "#ff9800"
+        status = "poor"
     else:
-        return "critical", "#f44336"
+        status = "critical"
+
+    color = theme[_PING_THEME_KEY[status]] if theme else _DEFAULT_PING_COLORS[status]
+    return status, color
