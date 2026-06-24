@@ -580,8 +580,14 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             game_data = dialog.get_game_data()
             if game_data:
-                self.game_manager.add_game(game_data)
-                self._populate_games()
+                if self.game_manager.add_game(game_data):
+                    self._populate_games()
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Duplicate Game",
+                        f'A game named "{game_data["name"]}" is already in your list.'
+                    )
 
     def _on_report(self, game):
         webhook = DISCORD_REPORT_WEBHOOK

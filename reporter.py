@@ -73,6 +73,51 @@ def send_report(webhook_url, game, issue_type, details, ping_history=None):
         return False, str(e)
 
 
+def send_game_request(webhook_url, game_name, note=None):
+    """
+    Send a "couldn't find this game automatically" request to the
+    developer's Discord webhook.
+
+    This is only ever sent when the user explicitly clicks a button
+    for it in the Add Game dialog - never automatic, never silent.
+    Anonymous, same as every other report here: just the game name
+    and platform, nothing personal.
+    """
+    if not webhook_url:
+        return False, "No webhook configured"
+
+    try:
+        import requests
+
+        version = _get_version()
+
+        embed = {
+            "title": "🎮 New Game Request",
+            "color": 0x4C4CFF,
+            "fields": [
+                {"name": "Game Name", "value": game_name, "inline": True},
+                {"name": "Platform", "value": sys.platform, "inline": True},
+            ],
+            "footer": {"text": f"PingGuard v{version} • {datetime.now().strftime('%Y-%m-%d %H:%M')}"},
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+
+        if note:
+            embed["fields"].append({"name": "Note", "value": note, "inline": False})
+
+        resp = requests.post(
+            webhook_url,
+            json={"embeds": [embed]},
+            timeout=5
+        )
+        if resp.status_code in (200, 204):
+            return True, "Sent — thanks for the heads up!"
+        return False, f"HTTP {resp.status_code}"
+
+    except Exception as e:
+        return False, str(e)
+
+
 def send_crash_report(webhook_url, error_info):
     """Send an automatic crash report (opt-in only)."""
     if not webhook_url:

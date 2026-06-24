@@ -78,18 +78,40 @@ def ping_game(game):
                       last_error)
 
 
-def get_process_name_for_game(game):
+def _as_lowercase_list(value):
+    """Normalize a string-or-list exe field into a clean lowercase list."""
+    items = value if isinstance(value, list) else [value]
+    return [n.lower() for n in items if n]
+
+
+def get_process_names_for_game(game):
     """
-    Return the correct process name for the current platform.
-    Falls back to stripping .exe from the Windows name if no
-    platform-specific entry is defined.
+    Return the list of process names to check for the current platform.
+
+    The 'exe' / 'exe_mac' / 'exe_linux' fields may each be a single string
+    or a list of strings. A list lets one game match multiple known exe
+    names — useful when a publisher renames an exe between builds (e.g.
+    Apex Legends' r5apex.exe -> r5apex_dx12.exe) without breaking detection
+    for installs still running the older one.
+
+    Falls back to stripping '.exe' from the Windows 'exe' field if no
+    platform-specific entry is defined for mac/linux — same behavior as
+    before, just list-aware now.
     """
     if sys.platform == "darwin":
-        return game.get("exe_mac") or game.get("exe", "").replace(".exe", "")
+        override = game.get("exe_mac")
     elif sys.platform.startswith("linux"):
-        return game.get("exe_linux") or game.get("exe", "").replace(".exe", "")
+        override = game.get("exe_linux")
     else:
-        return game.get("exe", "")
+        return _as_lowercase_list(game.get("exe"))
+
+    if override:
+        return _as_lowercase_list(override)
+
+    fallback = game.get("exe", "")
+    names = fallback if isinstance(fallback, list) else [fallback]
+    stripped = [n.replace(".exe", "") for n in names if n]
+    return _as_lowercase_list(stripped)
 
 
 def get_running_game_exes():
@@ -163,7 +185,7 @@ class PingWorker(QObject):
         games = self.game_manager.get_enabled()
 
         for game in games:
-            proc_name = get_process_name_for_game(game).lower()
+            proc_names = get_process_names_for_game(game)
 
             # Minecraft special case: 'java' matches too broadly on Mac/Linux.
             # Only match if the game is Minecraft and we're on Windows, where
@@ -172,7 +194,7 @@ class PingWorker(QObject):
                 self._running_games.discard(game["name"])
                 continue
 
-            if proc_name and proc_name in running_exes:
+            if proc_names and any(name in running_exes for name in proc_names):
                 if game["name"] not in self._running_games:
                     self._running_games.add(game["name"])
                     self.game_detected.emit(game["name"])

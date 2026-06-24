@@ -1,13 +1,63 @@
 """
 setup_wizard.py - First-time setup wizard shown on first launch
 """
+import re
+
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QStackedWidget, QWidget, QCheckBox, QComboBox, QScrollArea, QFrame
+    QStackedWidget, QWidget, QCheckBox, QScrollArea, QFrame,
+    QRadioButton, QButtonGroup
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 from games import DEFAULT_GAMES
+from ping_engine import tcp_ping
+
+# Matches names like "Overwatch 2 (EU)" -> ("Overwatch 2", "EU"). Used to
+# group regional siblings together so the games checklist can pre-check
+# just the one matching the user's chosen region instead of all of them.
+_REGION_VARIANT_RE = re.compile(r"^(.*) \((EU|NA|Asia|SA|OCE|Africa)\)$")
+
+
+def _split_region_variant(name):
+    match = _REGION_VARIANT_RE.match(name)
+    if match:
+        return match.group(1), match.group(2)
+    return name, None
+
+
+class RegionLatencyWorker(QThread):
+    """
+    TCP latency test against one representative AWS region endpoint per
+    geographic region.
+
+    AWS regional endpoints map to real, fixed datacenters rather than
+    anycast/CDN-fronted infrastructure - confirmed by direct testing
+    from South Africa, which returned genuinely distinguishing numbers
+    (Africa 24ms, EU 172ms, NA 207ms, SA 143ms, Asia 312ms, OCE 369ms)
+    instead of the suspiciously-flat numbers the original Battle.net
+    hostnames gave everywhere.
+    """
+    finished_testing = pyqtSignal(dict)  # value -> ms_or_None
+
+    REGION_TARGETS = [
+        ("🌍  Europe", "EU", "ec2.eu-west-1.amazonaws.com"),
+        ("🌎  North America", "NA", "ec2.us-east-1.amazonaws.com"),
+        ("🌏  Asia Pacific", "Asia", "ec2.ap-southeast-1.amazonaws.com"),
+        ("🌎  South America", "SA", "ec2.sa-east-1.amazonaws.com"),
+        ("🌏  Oceania", "OCE", "ec2.ap-southeast-2.amazonaws.com"),
+        ("🌍  Africa", "Africa", "ec2.af-south-1.amazonaws.com"),
+    ]
+
+    def run(self):
+        results = {}
+        for _, value, host in self.REGION_TARGETS:
+            try:
+                ms, success, _ = tcp_ping(host, 443, timeout=3.0)
+                results[value] = ms if success else None
+            except Exception:
+                results[value] = None
+        self.finished_testing.emit(results)
 
 
 class SetupWizard(QDialog):
@@ -33,9 +83,10 @@ class SetupWizard(QDialog):
         layout.addWidget(self.stack, stretch=1)
 
         self.stack.addWidget(self._page_welcome())
-        self.stack.addWidget(self._page_games())
-        self.stack.addWidget(self._page_region())
+        self._region_page_index = self.stack.addWidget(self._page_region())
+        self._games_page_index = self.stack.addWidget(self._page_games())
         self.stack.addWidget(self._page_ready())
+        self.stack.currentChanged.connect(self._on_page_changed)
 
         # Navigation bar
         nav = QWidget()
@@ -179,11 +230,58 @@ class SetupWizard(QDialog):
 
         return page
 
+    def _get_selected_region(self):
+        for value, (radio, _) in self.region_rows.items():
+            if radio.isChecked():
+                return value
+        return None
+
+    def _on_page_changed(self, index):
+        if index == self._games_page_index:
+            self._apply_region_aware_checks()
+
+    def _apply_region_aware_checks(self):
+        """
+        Re-applies which game checkboxes start checked, based on the
+        region chosen on the previous wizard page.
+
+        Without this, every regional variant of a game (e.g. both
+        "Overwatch 2 (EU)" and "Overwatch 2 (NA)") defaults to checked
+        together, defeating the entire point of separating them - a
+        fresh install would end up monitoring every region of a game
+        at once instead of just the one the user actually plays on.
+        """
+        selected_region = self._get_selected_region()
+
+        groups = {}
+        for game in DEFAULT_GAMES:
+            base, region = _split_region_variant(game["name"])
+            groups.setdefault(base, []).append((game["name"], region))
+
+        for base, entries in groups.items():
+            regions_in_group = [region for _, region in entries if region is not None]
+            if not regions_in_group:
+                continue  # not a regional game - leave its checkbox alone
+
+            if selected_region in regions_in_group:
+                # A variant matches the chosen region - check only that one.
+                for name, region in entries:
+                    cb = self.game_checks.get(name)
+                    if cb is not None:
+                        cb.setChecked(region == selected_region)
+            else:
+                # No variant covers the chosen region yet - show every
+                # option rather than silently hiding all of them.
+                for name, _ in entries:
+                    cb = self.game_checks.get(name)
+                    if cb is not None:
+                        cb.setChecked(True)
+
     def _page_region(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(40, 40, 40, 20)
-        layout.setSpacing(16)
+        layout.setContentsMargins(40, 30, 40, 20)
+        layout.setSpacing(12)
 
         title = QLabel("Where are you located?")
         title.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
@@ -191,38 +289,44 @@ class SetupWizard(QDialog):
         layout.addWidget(title)
 
         desc = QLabel(
-            "This helps PingGuard pick the right server endpoints\n"
-            "to test against for accurate results."
+            "This sets a sensible starting default. You can still pick a\n"
+            "different server for any individual game later — for example,\n"
+            "playing League on EU but Counter-Strike on a local server."
         )
-        desc.setStyleSheet("color: #666680; font-size: 12px;")
+        desc.setStyleSheet("color: #666680; font-size: 11px;")
         desc.setWordWrap(True)
         layout.addWidget(desc)
 
-        layout.addSpacing(20)
+        layout.addSpacing(12)
 
-        self.region_combo = QComboBox()
-        regions = [
-            ("🌍  Europe", "EU"),
-            ("🌎  North America", "NA"),
-            ("🌏  Asia Pacific", "Asia"),
-            ("🌎  South America", "SA"),
-            ("🌏  Oceania", "OCE"),
-        ]
-        for label, value in regions:
-            self.region_combo.addItem(label, value)
-        self.region_combo.setStyleSheet("""
-            QComboBox {
-                background: #1e1e2e; border: 1px solid #3a3a5e;
-                border-radius: 8px; padding: 10px 16px;
-                color: #e0e0e0; font-size: 14px;
-            }
-            QComboBox::drop-down { border: none; }
-            QComboBox QAbstractItemView {
-                background: #1e1e2e; color: #e0e0e0;
-                border: 1px solid #3a3a5e; selection-background-color: #3a3a5e;
-            }
-        """)
-        layout.addWidget(self.region_combo)
+        self.region_rows = {}
+        self.region_button_group = QButtonGroup(page)
+
+        for label, value, _host in RegionLatencyWorker.REGION_TARGETS:
+            row = QHBoxLayout()
+            radio = QRadioButton(label)
+            radio.setStyleSheet("""
+                QRadioButton { color: #e0e0e0; font-size: 13px; padding: 6px 0; }
+                QRadioButton::indicator { width: 16px; height: 16px; }
+            """)
+            ms_label = QLabel("Testing...")
+            ms_label.setStyleSheet("color: #666680; font-size: 12px;")
+            ms_label.setFixedWidth(80)
+            ms_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+            self.region_button_group.addButton(radio)
+            row.addWidget(radio)
+            row.addStretch()
+            row.addWidget(ms_label)
+            layout.addLayout(row)
+
+            self.region_rows[value] = (radio, ms_label)
+
+        self.region_test_label = QLabel("Testing your connection to each region...")
+        self.region_test_label.setStyleSheet("color: #4c4cff; font-size: 11px;")
+        self.region_test_label.setWordWrap(True)
+        layout.addSpacing(8)
+        layout.addWidget(self.region_test_label)
 
         layout.addStretch()
 
@@ -230,7 +334,40 @@ class SetupWizard(QDialog):
         note.setStyleSheet("color: #444466; font-size: 11px;")
         layout.addWidget(note)
 
+        self._start_region_latency_test()
+
         return page
+
+    def _start_region_latency_test(self):
+        self._region_latency_thread = RegionLatencyWorker(self)
+        self._region_latency_thread.finished_testing.connect(self._on_region_latency_done)
+        self._region_latency_thread.start()
+
+    def _on_region_latency_done(self, results):
+        fastest_value = None
+        fastest_ms = None
+
+        for _, value, _host in RegionLatencyWorker.REGION_TARGETS:
+            ms = results.get(value)
+            _, ms_label = self.region_rows[value]
+            if ms is not None:
+                ms_label.setText(f"{ms}ms")
+                if fastest_ms is None or ms < fastest_ms:
+                    fastest_ms = ms
+                    fastest_value = value
+            else:
+                ms_label.setText("Unavailable")
+
+        if fastest_value is not None:
+            radio, _ = self.region_rows[fastest_value]
+            radio.setChecked(True)
+            self.region_test_label.setText(
+                "✓ Pre-selected the fastest as a starting point — pick any other if you'd rather."
+            )
+        else:
+            self.region_test_label.setText(
+                "Couldn't test automatically — pick whichever matches where you play."
+            )
 
     def _page_ready(self):
         page = QWidget()
@@ -293,7 +430,7 @@ class SetupWizard(QDialog):
         self.game_manager.save()
 
         # Save region
-        self.settings.set("user_region", self.region_combo.currentData())
+        self.settings.set("user_region", self._get_selected_region() or "EU")
         self.settings.set("first_run", False)
 
         self.accept()

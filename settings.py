@@ -111,6 +111,73 @@ def migrate_game_endpoints(games_list):
                 changed = True
     return changed
 
+def migrate_game_regions(games_list):
+    """
+    Some games used to ship as a single blended entry covering multiple
+    regions (e.g. one "Overwatch 2" entry that tried EU first, then
+    fell back to NA). Because a TCP connection that gets actively
+    refused still counts as a successful ping in ping_engine.py (the
+    server is reachable, just saying no) - the fallback endpoint never
+    actually got used in practice. Non-EU players were unknowingly
+    having their EU latency reported as their ping.
+
+    This splits each affected game into separate, standalone region
+    entries - one per region - the same way every other game in this
+    list already works. The original entry's saved ping_history,
+    enabled state, and last_ping are preserved by renaming it in place
+    to become its first region. Any brand-new region variant is added
+    fresh and disabled by default - nothing should start monitoring or
+    alerting on a region the user never chose for themselves.
+    """
+    # old_name -> ordered list of (new_name, endpoint, region_note).
+    # The first entry in each list is what the existing saved entry
+    # gets renamed to; everything after that is added as a new,
+    # disabled entry.
+    splits = {
+        "Overwatch 2": [
+            ("Overwatch 2 (EU)", {"host": "eu.battle.net", "port": 443}, "Battle.net EU"),
+            ("Overwatch 2 (NA)", {"host": "us.battle.net", "port": 443}, "Battle.net NA"),
+        ],
+    }
+
+    changed = False
+    existing_names = {g["name"] for g in games_list}
+
+    for old_name, variants in splits.items():
+        if old_name not in existing_names:
+            continue  # already migrated on a previous run, or never existed for this user
+
+        first_name, first_endpoint, first_region_note = variants[0]
+
+        for game in games_list:
+            if game["name"] == old_name:
+                game["name"] = first_name
+                game["endpoints"] = [first_endpoint]
+                game["region_note"] = first_region_note
+                changed = True
+                break
+
+        template = next((g for g in games_list if g["name"] == first_name), None)
+        if template is None:
+            continue  # shouldn't happen, but never crash a migration over it
+
+        for new_name, endpoint, region_note in variants[1:]:
+            if new_name in existing_names:
+                continue
+            new_game = dict(template)
+            new_game["name"] = new_name
+            new_game["endpoints"] = [endpoint]
+            new_game["region_note"] = region_note
+            new_game["enabled"] = False
+            new_game["last_ping"] = None
+            new_game["last_checked"] = None
+            new_game["ping_history"] = []
+            games_list.append(new_game)
+            changed = True
+
+    return changed
+
+
 class GameManager:
     def __init__(self):
         self._games = []
@@ -121,7 +188,10 @@ class GameManager:
             try:
                 with open(GAMES_FILE, "r") as f:
                     self._games = json.load(f)
-                if migrate_game_endpoints(self._games):
+                changed = migrate_game_endpoints(self._games)
+                if migrate_game_regions(self._games):
+                    changed = True
+                if changed:
                     self.save()
             except Exception:
                 self._reset_to_defaults()
@@ -167,12 +237,16 @@ class GameManager:
         self.save()
 
     def add_game(self, game_dict):
+        name = game_dict.get("name", "")
+        if any(g["name"].lower() == name.lower() for g in self._games):
+            return False
         game_dict["enabled"] = True
         game_dict["last_ping"] = None
         game_dict["last_checked"] = None
         game_dict["ping_history"] = []
         self._games.append(game_dict)
         self.save()
+        return True
 
     def remove_game(self, game_name):
         self._games = [g for g in self._games if g["name"] != game_name]

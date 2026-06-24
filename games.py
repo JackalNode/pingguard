@@ -6,6 +6,11 @@ Process names per platform:
   exe       = Windows (.exe)
   exe_mac   = macOS (inside .app bundle, as seen by psutil)
   exe_linux = Linux (native or Proton)
+
+Any of exe / exe_mac / exe_linux can be either a single string or a list
+of strings. Use a list when a publisher has renamed the exe between
+versions (see Apex Legends below) — this lets old and new installs both
+still be detected, instead of overwriting one stale name with another.
 """
 
 DEFAULT_GAMES = [
@@ -38,7 +43,7 @@ DEFAULT_GAMES = [
     },
     {
         "name": "Apex Legends",
-        "exe": "r5apex.exe",
+        "exe": ["r5apex.exe", "r5apex_dx12.exe"],
         "exe_mac": "r5apex",
         "exe_linux": "r5apex",
         "icon": "🦅",
@@ -50,7 +55,7 @@ DEFAULT_GAMES = [
         "region_note": "EU servers"
     },
     {
-        "name": "Overwatch 2",
+        "name": "Overwatch 2 (EU)",
         "exe": "Overwatch.exe",
         "exe_mac": "Overwatch",
         "exe_linux": "Overwatch",
@@ -58,9 +63,20 @@ DEFAULT_GAMES = [
         "category": "FPS",
         "endpoints": [
             {"host": "eu.battle.net", "port": 443},
-            {"host": "us.battle.net", "port": 443},
         ],
         "region_note": "Battle.net EU"
+    },
+    {
+        "name": "Overwatch 2 (NA)",
+        "exe": "Overwatch.exe",
+        "exe_mac": "Overwatch",
+        "exe_linux": "Overwatch",
+        "icon": "⚡",
+        "category": "FPS",
+        "endpoints": [
+            {"host": "us.battle.net", "port": 443},
+        ],
+        "region_note": "Battle.net NA"
     },
     {
         "name": "Call of Duty: Warzone",
