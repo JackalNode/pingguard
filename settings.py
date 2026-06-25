@@ -92,23 +92,41 @@ class Settings:
 def migrate_game_endpoints(games_list):
     """Update endpoints for games that had bad defaults."""
     fixes = {
-        'CS2': [
-            {'host': 'steamcommunity.com', 'port': 443},
-            {'host': 'api.steampowered.com', 'port': 443},
-        ],
-        'Dota 2': [
-            {'host': 'steamcommunity.com', 'port': 443},
-            {'host': 'api.steampowered.com', 'port': 443},
-        ],
+        'CS2': {
+            'endpoints': [
+                {'host': 'steamcommunity.com', 'port': 443},
+                {'host': 'api.steampowered.com', 'port': 443},
+            ],
+            'region_note': 'Steam servers',
+            'is_stale': lambda hosts: any(h.startswith('185.') or h.startswith('146.') for h in hosts),
+        },
+        'Dota 2': {
+            'endpoints': [
+                {'host': 'steamcommunity.com', 'port': 443},
+                {'host': 'api.steampowered.com', 'port': 443},
+            ],
+            'region_note': 'Steam servers',
+            'is_stale': lambda hosts: any(h.startswith('185.') or h.startswith('146.') for h in hosts),
+        },
+        'Call of Duty: Warzone': {
+            'endpoints': [
+                {'host': 'eu.battle.net', 'port': 443},
+                {'host': '185.34.106.103', 'port': 3074},
+            ],
+            'region_note': 'EU servers',
+            'is_stale': lambda hosts: '172.64.155.188' in hosts,
+        },
     }
     changed = False
     for game in games_list:
-        if game['name'] in fixes:
-            current_hosts = [e['host'] for e in game.get('endpoints', [])]
-            if any(h.startswith('185.') or h.startswith('146.') for h in current_hosts):
-                game['endpoints'] = fixes[game['name']]
-                game['region_note'] = 'Steam servers'
-                changed = True
+        if game['name'] not in fixes:
+            continue
+        fix = fixes[game['name']]
+        current_hosts = [e['host'] for e in game.get('endpoints', [])]
+        if fix['is_stale'](current_hosts):
+            game['endpoints'] = fix['endpoints']
+            game['region_note'] = fix['region_note']
+            changed = True
     return changed
 
 def migrate_game_regions(games_list):

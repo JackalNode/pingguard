@@ -87,7 +87,7 @@ DEFAULT_GAMES = [
         "category": "FPS",
         "endpoints": [
             {"host": "eu.battle.net", "port": 443},
-            {"host": "172.64.155.188", "port": 3074},
+            {"host": "185.34.106.103", "port": 3074},
         ],
         "region_note": "EU servers"
     },
