@@ -116,6 +116,21 @@ def migrate_game_endpoints(games_list):
             'region_note': 'EU servers',
             'is_stale': lambda hosts: '172.64.155.188' in hosts,
         },
+        'Apex Legends': {
+            'endpoints': [
+                {'host': '100.50.20.250', 'port': 9000},
+            ],
+            'region_note': 'EA servers (US-East, AWS)',
+            'is_stale': lambda hosts: 'eaassets-a.akamaihd.net' in hosts or '159.153.64.1' in hosts,
+        },
+        'Path of Exile': {
+            'endpoints': [
+                {'host': '34.144.246.52', 'port': 6112},
+            ],
+            'region_note': 'South Africa servers (Google Cloud)',
+            'exe': ['PathOfExile.exe', 'PathOfExileSteam.exe'],
+            'is_stale': lambda hosts: 'www.pathofexile.com' in hosts or '45.33.26.109' in hosts,
+        },
     }
     changed = False
     for game in games_list:
@@ -126,6 +141,8 @@ def migrate_game_endpoints(games_list):
         if fix['is_stale'](current_hosts):
             game['endpoints'] = fix['endpoints']
             game['region_note'] = fix['region_note']
+            if 'exe' in fix:
+                game['exe'] = fix['exe']
             changed = True
     return changed
 

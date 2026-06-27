@@ -49,10 +49,9 @@ DEFAULT_GAMES = [
         "icon": "🦅",
         "category": "FPS",
         "endpoints": [
-            {"host": "eaassets-a.akamaihd.net", "port": 443},
-            {"host": "159.153.64.1", "port": 37015},
+            {"host": "100.50.20.250", "port": 9000},
         ],
-        "region_note": "EU servers"
+        "region_note": "EA servers (US-East, AWS)"
     },
     {
         "name": "Overwatch 2 (EU)",
@@ -148,16 +147,15 @@ DEFAULT_GAMES = [
     },
     {
         "name": "Path of Exile",
-        "exe": "PathOfExile.exe",
+        "exe": ["PathOfExile.exe", "PathOfExileSteam.exe"],
         "exe_mac": "PathOfExile",
         "exe_linux": "PathOfExile",
         "icon": "💀",
         "category": "ARPG",
         "endpoints": [
-            {"host": "www.pathofexile.com", "port": 443},
-            {"host": "45.33.26.109", "port": 20481},
+            {"host": "34.144.246.52", "port": 6112},
         ],
-        "region_note": "EU servers"
+        "region_note": "South Africa servers (Google Cloud)"
     },
     {
         "name": "Diablo IV",
