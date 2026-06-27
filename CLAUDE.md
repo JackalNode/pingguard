@@ -23,6 +23,7 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 - **Auto-update:** wired via `updater.py`.
 - **Process detection:** confirmed working live (Session 17) — Apex Legends "Running" bar and ping history both updated correctly during a real launch.
 - **`trace_connections.py` (Session 17):** standalone script (not part of the shipped app) that uses `psutil` to list a running game's real active network connections. Built to verify Warzone's server address; reusable for auditing any other game, and a proof-of-concept for the psutil-based Server Address auto-fill idea.
+- **All 21 `DEFAULT_GAMES` entries are currently enabled** in the dev's `games.json` (set Session 18 for endpoint-audit testing; dev intends to leave as-is).
 
 ---
 
@@ -106,6 +107,7 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 - **Each entry in the `fixes` dict must carry its own `is_stale` lambda and its own `region_note`** — never a shared/broad condition or hardcoded label across multiple games.
 - A correct new address for one game can coincidentally collide with another game's old-bad-address prefix check. Proven in Session 17: Warzone's real `185.34.106.103` starts with `185.`, which is the same prefix CS2/Dota2's staleness check matches. A shared check would have re-triggered on Warzone's already-correct entry forever.
 - `migrate_game_endpoints()` runs unconditionally on every `GameManager.load()`. Its return value is OR'd with `migrate_game_regions()`'s, and `self.save()` fires once if either returned `True`.
+- **The `fixes` dict format now supports an optional `'exe'` key** (added Session 18), applied via a guarded line in the apply loop (`if 'exe' in fix: game['exe'] = fix['exe']`). This is the first mechanism in the codebase for migrating a game's `exe` value on existing installs — previously only `endpoints` and `region_note` could be migrated. Existing fix entries without an `'exe'` key are provably unaffected.
 
 ### Call of Duty / Demonware architecture
 - **Call of Duty's actual game servers run on Demonware (Activision's own networking subsidiary), confirmed via RIPE WHOIS — not Battle.net.** Battle.net is only the PC login/launcher layer for Activision titles. For genuine Blizzard titles (Overwatch, Diablo, WoW), Battle.net *is* the real backend — this distinction matters when choosing what to ping.
@@ -116,6 +118,7 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 - **Dynamic per-match datacenter assignment is not Call-of-Duty-specific.** Confirmed directly via live in-game evidence on Apex Legends: PingGuard's verified, WHOIS-confirmed AWS endpoint (`us-east-1`) didn't match the in-game datacenter readout (`sa-east-1`) on a later match.
 - Any title using cloud-hosted, matchmaking-assigned dedicated servers should be assumed to share this limitation by default during future audits, rather than treated as a special case to check for individually.
 - A single hardcoded endpoint is still a strict improvement over CDN-shadowed numbers — it will read correctly when a match lands in the same region. Solving it properly requires real-time per-match server detection (v3 scope).
+- **Path of Exile does NOT share this problem** — PoE's gateway is a manual, persistent player choice rather than matchmaking-assigned, making it a real candidate for an Overwatch-2-style regional split in the future.
 
 ### Theme system
 - `theme.py` is the single source of truth for all colors. Two dicts: `DARK` and `LIGHT`, identical key sets (39 tokens).
@@ -166,16 +169,33 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 
 ---
 
+## Path of Exile — Endpoint Fix (Session 18)
+
+**What was wrong:** the entry blended `www.pathofexile.com:443` (Akamai CDN — same shadowing pattern as Apex) with `45.33.26.109:20481`. The CDN entry listed first was winning every ping via `ping_game()`'s first-success-wins logic. Additionally, the `exe` field was `"PathOfExile.exe"` (single string) — the actual running process is `PathOfExileSteam.exe`.
+
+**How the replacement was found:** `trace_connections.py` run 5 times during a live session. Exactly two `ESTABLISHED` connections in every run: `34.144.246.52:6112` (non-standard port — real game traffic) and `2.16.199.16:443` (Akamai CDN). WHOIS on `34.144.246.52`: Google LLC (`GOOGL-2`), block `34.128.0.0/10`, confirmed Google Cloud customer use. WHOIS on `2.16.199.16`: Akamai (`AKAMAI-PA`) — confirms CDN-shadowing pattern identical to Apex.
+
+**Verified against two independent ground-truth numbers:** `tcp_ping()` to `34.144.246.52:6112` returned 32ms; in-game gateway screenshot showed "South Africa" at 22ms (TCP SYN vs. UDP gap accounts for the difference). After applying the fix and relaunching, live in-app testing showed PingGuard reporting 27ms vs. an in-game lobby reading of 32ms — 5ms gap, tightest confirmation margin of any fix this session.
+
+**What was fixed:**
+1. `games.py`: `endpoints` replaced with `{"host": "34.144.246.52", "port": 6112}`. `region_note` corrected from `"EU servers"` to `"South Africa servers (Google Cloud)"`. `exe` updated to `["PathOfExile.exe", "PathOfExileSteam.exe"]` (alias list).
+2. `settings.py` `migrate_game_endpoints()`: new `'Path of Exile'` entry added (own `is_stale`, own `region_note`, plus `'exe'` key to migrate the alias list to existing installs).
+3. **New capability:** `migrate_game_endpoints()`'s apply loop extended with `if 'exe' in fix: game['exe'] = fix['exe']` — the first exe-field migration mechanism in the codebase. Guarded so existing fix entries without an `'exe'` key are unaffected.
+
+**PoE does not have the dynamic-datacenter problem** — the gateway is a manual, persistent player choice. This makes it a future candidate for an Overwatch-2-style regional split (trace once per gateway the player manually switches to).
+
+---
+
 ## File Inventory
 
 | File | Notes |
 |------|-------|
 | `main.py` | Version string `2.1.0`. AppUserModelID set before QApplication. |
 | `app.py` | Never reads `game["exe"]` directly — only consumes `ping_worker.get_running_games()`. |
-| `main_window.py` | `_on_add_game()` checks `add_game()` return value; shows warning on duplicate. Never reads `game["exe"]` directly. |
-| `settings.py` | `GameManager`. `add_game()` enforces unique names (case-insensitive), returns True/False. `migrate_game_endpoints()` restructured: each entry in `fixes` carries its own `is_stale` lambda and `region_note` — CS2, Dota 2, Call of Duty: Warzone, and Apex Legends all present. `migrate_game_regions()` unchanged. `update_game()` exists but has no UI caller. |
-| `games.py` | `DEFAULT_GAMES`. Apex exe is `["r5apex.exe", "r5apex_dx12.exe"]`. Apex endpoint is `100.50.20.250:9000` (WHOIS-confirmed AWS/EA, region_note "EA servers (US-East, AWS)"). OW2 split into (EU)/(NA). Warzone second endpoint is `185.34.106.103:3074` (confirmed Demonware). |
-| `ping_engine.py` | `get_process_names_for_game()` + `_as_list()` helper. `check_running_games()` matches alias-set overlap. `tcp_ping()` reused directly to verify both Warzone and Apex endpoints. `ping_game()` is first-success-wins — walks endpoints in order, returns on first success. |
+| `main_window.py` | `_on_add_game()` checks `add_game()` return value; shows warning on duplicate. Never reads `game["exe"]` directly. `_populate_games()` filters on `enabled` boolean only — no category or search filtering. |
+| `settings.py` | `GameManager`. `add_game()` enforces unique names (case-insensitive), returns True/False. `migrate_game_endpoints()` restructured: each entry in `fixes` carries its own `is_stale` lambda and `region_note` — CS2, Dota 2, Call of Duty: Warzone, Apex Legends, and Path of Exile all present. Apply loop now also optionally writes `exe` when the fix dict carries an `'exe'` key — first exe-migration capability in the codebase (Session 18). `migrate_game_regions()` unchanged. `update_game()` exists but has no UI caller. |
+| `games.py` | `DEFAULT_GAMES`. Apex exe is `["r5apex.exe", "r5apex_dx12.exe"]`. Apex endpoint is `100.50.20.250:9000` (WHOIS-confirmed AWS/EA, region_note "EA servers (US-East, AWS)"). OW2 split into (EU)/(NA). Warzone second endpoint is `185.34.106.103:3074` (confirmed Demonware). Path of Exile endpoint is `34.144.246.52:6112` (WHOIS-confirmed Google Cloud, region_note "South Africa servers (Google Cloud)"); exe is `["PathOfExile.exe", "PathOfExileSteam.exe"]`. |
+| `ping_engine.py` | `get_process_names_for_game()` + `_as_list()` helper. `check_running_games()` matches alias-set overlap. `tcp_ping()` reused directly to verify Warzone, Apex, and PoE endpoints. `ping_game()` is first-success-wins — walks endpoints in order, returns on first success. |
 | `game_detector.py` | Scans Steam/Epic/Riot/Battle.net for installed games. All detectors independently try/except. |
 | `add_game_dialog.py` | Detected-games dropdown, Browse button, game-request report hook. Dialog height 420×555. Server Address field has label, tooltip, and hint. All confirmed working via live testing. |
 | `reporter.py` | `send_report()` + `send_game_request()`. Webhook from `constants.py`. |
@@ -209,13 +229,14 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 
 ## v2.2.0 Remaining Work
 
-- `🔲` Audit remaining ~15 `DEFAULT_GAMES` entries for blended-region-fallback issue — `trace_connections.py` + WHOIS is now the proven method. Path of Exile and World of Warcraft are next.
+- `🔲` Audit remaining ~13 `DEFAULT_GAMES` entries for blended-region-fallback issue — Warzone, Apex, and Path of Exile completed (Sessions 17–18). World of Warcraft is next; already enabled in the dev's `games.json` and ready to test immediately.
 - `🔲` Audit remaining default games for exe staleness
 - `🔲` Real per-game region management UI
 - `🔲` Per-game ping thresholds
 - `🔲` Real "edit existing game" UI — `update_game()` exists in `settings.py` but has no caller anywhere
 - `🔲` Investigate psutil-based Server Address auto-fill in the actual Add Game dialog (filtering logic needed before it's UI-ready)
 - `🔲` Confirm `remove_game()` has a visible button wired to it end to end
+- `🔲` Confirm whether Apex Legends's `exe` alias list ever reached the dev's `games.json` via a real migration (the exe-migration mechanism didn't exist until Session 18 — worth a direct check next session)
 
 ---
 
@@ -236,7 +257,9 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 - **Whether `eu.battle.net` is measuring the right thing for Warzone** — it's the Blizzard login layer, not Demonware's game backend. May only reflect login-service latency, not real match-server latency.
 - **GCP address on port 1119** (`35.204.122.188`) seen during Warzone trace — same port as WoW's real game-data endpoint in `games.py`. Not investigated.
 - **Real-time per-match server detection** — confirmed on both Warzone (Demonware) and Apex (AWS multi-region) that a single hardcoded endpoint can't represent "the server you'd actually play in" for titles with dynamic datacenter assignment. `trace_connections.py` proves the psutil approach works; turning it into a live in-app feature is the real fix. v3 scope.
-- **Path of Exile (`45.33.26.109:20481`) and World of Warcraft (`eu.actual.battle.net:1119`)** — next in the audit queue using the proven `trace_connections.py` + WHOIS method.
+- **World of Warcraft (`eu.actual.battle.net:1119`)** — next in the audit queue using the proven `trace_connections.py` + WHOIS method. Already enabled in the dev's `games.json`, ready to test immediately.
+- **Apex Legends `exe` alias check** — the alias list (`r5apex.exe` / `r5apex_dx12.exe`) was confirmed working live in Session 17, but no `migrate_game_endpoints()` exe entry was ever added at the time (the capability didn't exist yet). Worth confirming next session whether the dev's `games.json` already has the correct alias list or is relying on something else.
+- **All 21 `DEFAULT_GAMES` entries are currently enabled** in the dev's `games.json` (changed Session 18 for testing, dev intends to leave as-is) — PingGuard is now monitoring all 21 endpoints every cycle. Worth keeping in mind if performance or Discord-report noise comes up.
 - **Edit/remove game UI:** `update_game()` has no caller. Confirm `remove_game()` has a visible button wired to it before assuming removal works end to end.
 - **psutil live-connection detection:** viable in principle (proven by `trace_connections.py`), but needs filtering logic before it can be a UI feature.
 - **macOS / Linux:** pipeline is Windows-only; needs dedicated session when ready.
