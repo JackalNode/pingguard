@@ -4,3 +4,4 @@ dist/
 installer_output/
 *.pyc
 constants.py
+_session_scratch/
