@@ -24,6 +24,7 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 - **Process detection:** confirmed working live (Session 17) — Apex Legends "Running" bar and ping history both updated correctly during a real launch.
 - **`trace_connections.py` (Session 17):** standalone script (not part of the shipped app) that uses `psutil` to list a running game's real active network connections. Built to verify Warzone's server address; reusable for auditing any other game, and a proof-of-concept for the psutil-based Server Address auto-fill idea.
 - **All 21 `DEFAULT_GAMES` entries are currently enabled** in the dev's `games.json` (set Session 18 for endpoint-audit testing; dev intends to leave as-is).
+- **Five games audited Session 19, all documentation-only (no code changes).** WoW: DNS/WHOIS-checked, inconclusive. Valorant + League of Legends: confirmed architecturally blocked (unconnected UDP) — LoL confirms this is a Riot company-wide pattern, not a Valorant one-off. CS2: confirmed via live `netstat`, Valve SDR deliberately hides server IPs by design. Dota 2: inferred from CS2's SDR finding. All five shipping unchanged.
 
 ---
 
@@ -120,6 +121,14 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 - A single hardcoded endpoint is still a strict improvement over CDN-shadowed numbers — it will read correctly when a match lands in the same region. Solving it properly requires real-time per-match server detection (v3 scope).
 - **Path of Exile does NOT share this problem** — PoE's gateway is a manual, persistent player choice rather than matchmaking-assigned, making it a real candidate for an Overwatch-2-style regional split in the future.
 
+### Three classes of audit-blocking issue (Session 19 — standing architecture fact)
+- **(1) CDN-shadowing** — a real correct address exists but is shadowed by a CDN endpoint that wins first-success-wins. Fixable via `trace_connections.py` + WHOIS (Warzone/Apex/PoE pattern).
+- **(2) Dynamic per-match datacenter assignment** — a real address exists but changes session to session. Best-effort fix with a single confirmed address; real fix is v3 real-time detection (Warzone/Apex).
+- **(3) Unconnected/`sendto()`-style UDP** — the OS itself never records a remote peer address. Invisible to all connection-table tools (`trace_connections.py`, `netstat`) regardless of permissions. Only viable path is packet capture (Wireshark). Confirmed on Valorant via raw `netstat` (`*:*` remote), independent of Vanguard.
+- **Early detection shortcut for class 3:** check `netstat`'s UDP remote-address column. `*:*` remote = sendto()-style UDP = skip connection-table approach entirely.
+- **Valve's Steam Datagram Relay (SDR) is a confirmed specific instance of class 3** for CS2 (live-traced), almost certainly Dota 2 by inference. Unlike Valorant, SDR's IP-hiding is explicit documented anti-DDoS design — no client-visible server IP exists at all, by intent. Assume SDR for any Steamworks-API title by default going forward.
+- **Riot's unconnected-UDP pattern is confirmed company-wide**, not Valorant-specific: confirmed on League of Legends (live-traced, active ARAM match, distinct two-process architecture). Assume by default for any further Riot title.
+
 ### Theme system
 - `theme.py` is the single source of truth for all colors. Two dicts: `DARK` and `LIGHT`, identical key sets (39 tokens).
 - Widgets with direct `settings` access compute their own theme. Nested widgets receive a resolved `theme` dict as a constructor parameter.
@@ -186,6 +195,36 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 
 ---
 
+## CS2 — Endpoint Audit (Session 19, architecturally blocked — Steam Datagram Relay)
+
+Live `netstat` during a live official matchmaking Deathmatch showed 53 UDP sockets, all `*:*` remote, zero TCP. Root cause is more specific than Valorant's: Valve's CS2 client routes all match traffic through Steam Datagram Relay (SDR), which deliberately hides server IPs from clients as an anti-DDoS measure — confirmed via Valve's own public SDR docs. Before matchmaking completes, the client fans out UDP probes across 49+ SDR relay PoPs to measure latency to each (explaining the high socket count). Once connected, the address is an internal token (`[A:n:nnnnnnnn]`), not an IP:port. No client-side tool can see a real server IP — by design. Existing endpoints unchanged; `region_note` of "Steam servers" was already honest.
+
+---
+
+## Dota 2 — Endpoint Status (Session 19, inferred — not directly traced)
+
+Not live-traced; dev doesn't own Dota 2. Documented by architectural inference: Dota 2 is built on the same Valve/Steamworks foundation as CS2, and Valve's SDR rollout docs confirm Dota was SDR's original proving ground before CS:GO. Shipping existing endpoints unchanged on inferred grounds — lower evidence tier than the rest of this session's audits, flagged explicitly. Worth a real trace if a Dota-2-playing tester becomes available.
+
+---
+
+## League of Legends — Endpoint Audit (Session 19, architecturally blocked)
+
+Live `netstat` during an active ARAM match. Two separate processes: `LeagueClient.exe` (lobby/launcher) and `League of Legends.exe` (in-match game). `LeagueClient.exe` external connections: two Cloudflare addresses on 443 (CDN/account) + one AWS Frankfurt on port 2099 (Riot RTMPS chat/presence). `League of Legends.exe`: zero external TCP, one unconnected UDP socket (`*:*`) — identical fingerprint to Valorant. Confirms Riot's unconnected-UDP pattern is company-wide, not Valorant-specific. Shipping unchanged. Open question flagged: Valorant's "EU West" and LoL's "EUW" `region_note` values may be as misleading as Apex's old label was pre-Session-18-fix — not resolved, flagged for a follow-up.
+
+---
+
+## World of Warcraft — Endpoint Audit (Session 19, inconclusive)
+
+DNS-resolved `eu.actual.battle.net` → `34.141.148.228` (Google Cloud, europe-west4, Netherlands). Google Cloud ownership is not evidence of a fake endpoint — PoE's confirmed real server is also Google Cloud. Live trace blocked: no active WoW or WoW Classic subscription. No subscription bypass attempted. Shipping v2.2.0 with `eu.actual.battle.net:1119` unchanged, documented as unverified, relying on Discord error reports for real-world feedback. Retail WoW has a free trial path (Starter Edition, levels 1–20) for future verification. Open question: whether the single "World of Warcraft" entry should eventually split into retail/Classic (they likely diverge at the real realm-server level).
+
+---
+
+## Valorant — Endpoint Audit (Session 19, architecturally blocked)
+
+Existing endpoints (`euw1.pvp.net:443`, `eu.api.riotgames.com:443`) are account/API layer, not match servers. Live traces (5 runs across 2 sessions) showed only TCP 443 + XMPP port 5223 — no gameplay traffic. Riot's published port docs confirm real match data runs on UDP 7000–8000. Root cause confirmed via raw `netstat` (independent of psutil/Vanguard): Valorant's two open UDP sockets show `*:*` as remote address — unconnected (`sendto()`-style) UDP, so the OS never records the real server IP. Invisible to all connection-table tools regardless of permissions. Shipping endpoints unchanged, documented as login/API latency only. Packet-capture (Wireshark) is the only viable next step — flagged as future work, not pursued this session.
+
+---
+
 ## File Inventory
 
 | File | Notes |
@@ -229,8 +268,12 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 
 ## v2.2.0 Remaining Work
 
-- `🔲` Audit remaining ~13 `DEFAULT_GAMES` entries for blended-region-fallback issue — Warzone, Apex, and Path of Exile completed (Sessions 17–18). World of Warcraft is next; already enabled in the dev's `games.json` and ready to test immediately.
-- `🔲` Audit remaining default games for exe staleness
+- `🟡` World of Warcraft endpoint audited (Session 19) — DNS/WHOIS-checked, inconclusive without live trace (no active subscription). Shipping unchanged, unverified, relying on player error reports.
+- `🟡` Valorant endpoint audited (Session 19) — architecturally blocked (unconnected UDP, class 3 issue). Shipping unchanged.
+- `🟡` CS2 endpoint audited (Session 19) — architecturally blocked via Valve SDR; server IPs deliberately hidden by design. Shipping unchanged — already honestly labeled.
+- `🟡` Dota 2 endpoint status documented (Session 19) — inferred from CS2's SDR finding, not directly traced. Shipping unchanged.
+- `🟡` League of Legends endpoint audited (Session 19) — architecturally blocked, same unconnected-UDP pattern as Valorant, confirmed via live `netstat` during active ARAM. Shipping unchanged.
+- `🔲` Audit remaining ~11 `DEFAULT_GAMES` entries for blended-region-fallback issue and exe staleness
 - `🔲` Real per-game region management UI
 - `🔲` Per-game ping thresholds
 - `🔲` Real "edit existing game" UI — `update_game()` exists in `settings.py` but has no caller anywhere
@@ -257,7 +300,11 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 - **Whether `eu.battle.net` is measuring the right thing for Warzone** — it's the Blizzard login layer, not Demonware's game backend. May only reflect login-service latency, not real match-server latency.
 - **GCP address on port 1119** (`35.204.122.188`) seen during Warzone trace — same port as WoW's real game-data endpoint in `games.py`. Not investigated.
 - **Real-time per-match server detection** — confirmed on both Warzone (Demonware) and Apex (AWS multi-region) that a single hardcoded endpoint can't represent "the server you'd actually play in" for titles with dynamic datacenter assignment. `trace_connections.py` proves the psutil approach works; turning it into a live in-app feature is the real fix. v3 scope.
-- **World of Warcraft (`eu.actual.battle.net:1119`)** — next in the audit queue using the proven `trace_connections.py` + WHOIS method. Already enabled in the dev's `games.json`, ready to test immediately.
+- **World of Warcraft (`eu.actual.battle.net:1119`)** — DNS/WHOIS-checked Session 19 (Google Cloud, Netherlands), inconclusive without a live trace. Shipping unverified; retail free trial (Starter Edition) is the path for future verification.
+- **Valorant** — audited Session 19, confirmed class 3 (unconnected UDP). Shipping endpoints unchanged as login/API latency proxy. Wireshark is the only path to real match server discovery.
+- **CS2** — audited Session 19 via live `netstat`, confirmed class 3 via Valve SDR. Server IPs are intentionally hidden by design — no client-side tool can reach them. Shipping unchanged; existing "Steam servers" label was already honest.
+- **Dota 2** — documented Session 19 by inference from CS2's SDR finding. Shipping unchanged. Lower evidence tier — worth a real trace if a Dota-2-playing tester becomes available.
+- **League of Legends** — audited Session 19 via live `netstat` during active ARAM, confirmed class 3 (unconnected UDP, same Riot pattern as Valorant). Two-process architecture (`LeagueClient.exe` / `League of Legends.exe`). Shipping unchanged. Open question: "EUW" `region_note` may need same precision pass as Apex's old label got.
 - **Apex Legends `exe` alias check** — the alias list (`r5apex.exe` / `r5apex_dx12.exe`) was confirmed working live in Session 17, but no `migrate_game_endpoints()` exe entry was ever added at the time (the capability didn't exist yet). Worth confirming next session whether the dev's `games.json` already has the correct alias list or is relying on something else.
 - **All 21 `DEFAULT_GAMES` entries are currently enabled** in the dev's `games.json` (changed Session 18 for testing, dev intends to leave as-is) — PingGuard is now monitoring all 21 endpoints every cycle. Worth keeping in mind if performance or Discord-report noise comes up.
 - **Edit/remove game UI:** `update_game()` has no caller. Confirm `remove_game()` has a visible button wired to it before assuming removal works end to end.
