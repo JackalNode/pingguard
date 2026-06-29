@@ -26,7 +26,7 @@ DEFAULT_GAMES = [
             {"host": "euw1.pvp.net", "port": 443},
             {"host": "eu.api.riotgames.com", "port": 443},
         ],
-        "region_note": "EU West"
+        "region_note": "Riot account/API layer (not match server)"
     },
     {
         "name": "CS2",
@@ -182,7 +182,7 @@ DEFAULT_GAMES = [
             {"host": "euw1.api.riotgames.com", "port": 443},
             {"host": "eu.api.riotgames.com", "port": 443},
         ],
-        "region_note": "EUW"
+        "region_note": "Riot account/API layer (not match server)"
     },
     {
         "name": "Dota 2",

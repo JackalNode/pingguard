@@ -131,6 +131,14 @@ def migrate_game_endpoints(games_list):
             'exe': ['PathOfExile.exe', 'PathOfExileSteam.exe'],
             'is_stale': lambda hosts: 'www.pathofexile.com' in hosts or '45.33.26.109' in hosts,
         },
+        'Valorant': {
+            'region_note': 'Riot account/API layer (not match server)',
+            'region_note_stale': lambda rn: rn == 'EU West',
+        },
+        'League of Legends': {
+            'region_note': 'Riot account/API layer (not match server)',
+            'region_note_stale': lambda rn: rn == 'EUW',
+        },
     }
     changed = False
     for game in games_list:
@@ -138,11 +146,15 @@ def migrate_game_endpoints(games_list):
             continue
         fix = fixes[game['name']]
         current_hosts = [e['host'] for e in game.get('endpoints', [])]
-        if fix['is_stale'](current_hosts):
+        if 'is_stale' in fix and fix['is_stale'](current_hosts):
             game['endpoints'] = fix['endpoints']
             game['region_note'] = fix['region_note']
             if 'exe' in fix:
                 game['exe'] = fix['exe']
+            changed = True
+        if 'region_note_stale' in fix and \
+                fix['region_note_stale'](game.get('region_note', '')):
+            game['region_note'] = fix['region_note']
             changed = True
     return changed
 
