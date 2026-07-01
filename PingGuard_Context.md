@@ -1,7 +1,7 @@
 # PingGuard — Context Document
 > Paste alongside JackalNode_Context.md at the start of any PingGuard session — though as of Session 17, the primary working method has shifted (see Tooling section below).
 > Built fresh in Session 12, modeled on StartGuard_Context.md's structure (StartGuard is the blueprint — see master doc Standing Rule #8).
-> Last updated: Session 19 — Five games audited this session, all documentation-only (no code changes). WoW: DNS/WHOIS-checked, inconclusive. Valorant + League of Legends: confirmed architecturally blocked (unconnected UDP) — LoL's confirmation upgrades this from a Valorant one-off to a confirmed Riot company pattern. CS2: confirmed via live `netstat` trace, Valve SDR deliberately hides server IPs by design. Dota 2: inferred from CS2's SDR finding. See each game's dedicated section for full detail.
+> Last updated: Session 19 — Five games audited this session, all documentation-only (no code changes). WoW: DNS/WHOIS-checked, inconclusive. Valorant + League of Legends: confirmed architecturally blocked (unconnected UDP) — LoL's confirmation upgrades this from a Valorant one-off to a confirmed Riot company pattern. CS2: confirmed via live `netstat` trace, Valve SDR deliberately hides server IPs by design. Dota 2: inferred from CS2's SDR finding. See each game's dedicated section for full detail. Follow-up desk audit of the remaining 11 default games completed same session — see new section below.
 
 ---
 
@@ -325,6 +325,28 @@ Network/ping monitor for gamers — checks your gaming ping before you get stuck
 
 ---
 
+## Desk Audit — 11 Remaining Default Games (Session 19 Follow-up)
+
+**Method:** DNS resolution + IP ownership lookup only — no live trace, no code changes. Same treatment as World of Warcraft's Session 19 audit. The dev doesn't currently own/have access to any of these 11 titles for live testing.
+
+**Findings, one block per game:**
+
+- **Fortnite** — `account-public-service-prod.ol.epicgames.com` resolves to AWS EC2 (us-east-1, plausibly genuine Epic infra, unverified without live trace). `fortnite-public-service-prod11.ol.epicgames.com` resolves to Cloudflare (CDN-shadowed). First endpoint wins via first-success-wins, so the practical result is plausible but unverified. `region_note` ("Epic EU") is wrong regardless — neither endpoint is EU.
+- **PUBG** — single endpoint (`prod-live-front.playbattlegrounds.com`) resolves to Akamai. CDN-shadowed, no fallback available.
+- **Final Fantasy XIV** — `frontier.ffxiv.com` resolves to a Square Enix-owned IP in Japan but is NOT a regional gateway — confirmed via third-party technical docs that it's a global launcher status-check API used identically by every region's client. `patch-bootver.ffxiv.com` is Akamai CDN (patch delivery, expected). **Follow-up finding:** FFXIV has genuine named per-datacenter lobby servers — `neolobby06.ffxiv.com` for the Chaos (EU) data center specifically, confirmed via community server-monitoring sources showing a stable cluster of IPs (80.239.145.79–89) at consistent ~120ms, distinct from Tokyo-based `frontier.ffxiv.com`. Elevates FFXIV to a stronger regional-split candidate than originally scoped, closer in shape to Path of Exile's gateway-list pattern. NOT yet WHOIS-confirmed or live-trace-verified. No code change applied.
+- **Diablo IV** — `eu.battle.net` resolves to AWS Global Accelerator (anycast), same result already seen for Warzone/WoW/Overwatch 2. No new finding.
+- **FIFA / EA FC** — `ea.com` is Akamai CDN. `api2.ea.com` is **NXDOMAIN — confirmed dead, doesn't exist.** Currently silent only because `ea.com` wins first via the refusal-counts-as-success behavior. Flagged as a standalone fix, independent of the regional-audit question.
+- **Rocket League** — same two Epic hostnames as Fortnite, **listed in the opposite order.** Cloudflare CDN comes first here and wins, where Fortnite's AWS endpoint comes first and wins. Same underlying infra pair, opposite practical outcome — a pure list-order effect.
+- **Minecraft** — both endpoints resolve to the identical Microsoft-owned IP (Azure). Genuine first-party cloud infra, not CDN-shadowed. Open question, not a bug: vanilla Java multiplayer doesn't have one central "match server" the way other titles here do — worth discussing whether pinging the session/auth endpoint is even the right model for this title.
+- **GTA Online** — single endpoint (`prod.cloud.rockstargames.com`) resolves to Akamai despite the "cloud" name. CDN-shadowed, no fallback.
+- **Rainbow Six Siege** — `uplaypc-s-ubisoft.cdn.ubi.com` (literal "cdn" in hostname) resolves to Akamai and wins first. `public-ubiservices.ubi.com` resolves to AWS Global Accelerator, never reached. Same list-order pattern as Fortnite/Rocket League.
+- **Destiny 2** — single endpoint (`www.bungie.net`) resolves to Cloudflare. CDN-shadowed, no fallback — "www" is the public site, not a game server.
+- **Lost Ark** — `api.amazon.com` resolves to genuine Amazon-owned infra (us-east-1), correct owner (Amazon Games publishes the western release) but wrong region — `region_note` says "Amazon EU."
+
+**No code changes applied.** All 11 ship unchanged this session, same as WoW's treatment — documented as unverified/CDN-shadowed/dead where applicable, pending either live-trace access or the report-system feature below.
+
+---
+
 ## Process Detection — Architecture (Hardened Session 16, Confirmed Live Session 17)
 
 **Confirmed via direct review of `app.py`, `main_window.py`, and `ping_engine.py`:** the `exe` field is used *only* for "is this game currently running" detection inside `PingWorker.check_running_games()`. It has zero connection to the actual ping test, which runs purely off `host`/`port`. A stale/wrong `exe` value can never break ping accuracy — it only affects the "▶ Running" badge and the check-on-launch trigger.
@@ -406,12 +428,30 @@ Full chain verified via the actual built `.exe`: title bar, taskbar, tray, and W
 
 ---
 
+## Planned — Report-System Trace Collection (Fast-follow after v2.2.0)
+
+Opt-in, disclosed feature: prompt players (scoped only to games still flagged unverified, not all 21) to send a short live-connection trace via the existing `reporter.py` → Discord webhook pipeline, reusing the proven `trace_connections.py` logic. Multi-sample over roughly 30–60 seconds rather than a single snapshot, since every successful trace this project (PoE, Warzone, Apex) needed multiple runs to separate the consistent real address from CDN/account-layer noise.
+
+**Precondition, not yet done:** check each target game's hardcoded `exe` value isn't stale before relying on this — a stale exe means the trace silently finds nothing, which must not be mistaken for "no real server traffic" (same shape of bug as Apex's old `r5apex.exe` mismatch).
+
+Does not touch `games.py`, `GameManager`, or the core data model — additive only. Ships as its own patch after v2.2.0's tag; doesn't block it.
+
+---
+
+## Planned — Internal JackalNode Filtering Tool (Future, not public release)
+
+A personal-use-only tool (distinct from the public JackalNode app pipeline — no "plain English" constraint, no donation-only model) that ingests raw player connection-trace reports and automates the WHOIS/CDN-pattern judgment currently done by hand each audit session. Sequenced after the report-system feature above ships and has real report data to work against; ranked ahead of starting any new unstarted public-pipeline app (SlowDown?, DriverWatch, etc.).
+
+**Design requirement:** must be agent-operable from the start. The dev is building a personal AI assistant intended to eventually run/view this tool in his stead — write actions always require his explicit approval. Output should be structured data, not prose, so the assistant can act on results reliably.
+
+---
+
 ## Release Sequence — Roadmap
 
 ### v2.0.5 / v2.0.6 — Patch: Bug Fixes & Infrastructure Parity ✅ SHIPPED
 ### v2.1.0 — Icon Completion + Light/Dark Theme + Cleanup ✅ SHIPPED
 
-### v2.2.0 — Minor: Per-Game Management 🟡 IN PROGRESS
+### v2.2.0 — Minor: Per-Game Management ✅ CHECKLIST COMPLETE, PENDING TAG
 *Moderate risk — touches the core data model and monitoring loop.*
 - ✅ Add Game auto-detection (Steam/Epic/Riot/Battle.net)
 - ✅ Region-separation architecture, migration, and wizard rebuild (Overwatch 2 as worked example)
@@ -426,11 +466,7 @@ Full chain verified via the actual built `.exe`: title bar, taskbar, tray, and W
 - 🟡 CS2 endpoint audited (Session 19) — architecturally blocked, more specific root cause than Valorant: confirmed via live `netstat` trace that CS2 routes match traffic through Valve's Steam Datagram Relay (SDR), which deliberately hides server IPs from clients as an anti-DDoS measure. No real server IP is ever visible to any client-side tool, by design. Shipping existing endpoints unchanged — already honestly labeled "Steam servers," nothing to fix.
 - 🟡 Dota 2 endpoint status documented (Session 19) — inferred, not directly traced (dev doesn't own the game). Same Valve/Steamworks SDR architecture as CS2, confirmed via Valve's own documentation that Dota 2 was SDR's original rollout testbed. Shipping existing endpoints unchanged on inferred grounds; flagged as the one audit this session not backed by a direct trace.
 - 🟡 League of Legends endpoint audited (Session 19) — architecturally blocked, same wall as Valorant: confirmed via live `netstat` trace during an active ARAM match that the real game process (`League of Legends.exe`) has zero external TCP and only one unconnected UDP socket. The separate `LeagueClient.exe` process handles all visible CDN/chat traffic. Shipping existing endpoints unchanged, documented as account/API latency only. Confirms Riot's UDP architecture as a company-wide pattern, not a Valorant one-off. 11 default games remain unaudited beyond Warzone/Apex/PoE/WoW/Valorant/CS2/Dota 2/LoL.
-- 🔲 Audit remaining default games for the same exe-staleness risk
-- 🔲 Real per-game region management screen
-- 🔲 Per-game ping thresholds (not started)
-- 🔲 Real "edit an existing game" UI
-- 🔲 Investigate building the psutil-based Server Address auto-fill into the actual Add Game dialog — `trace_connections.py` proved the underlying idea works, but real connection lists are noisy (up to 9 simultaneous connections in one observed session) and would need real filtering logic before going anywhere near the UI
+> **Scope decision (Session 19 follow-up):** the four remaining items below were reviewed and explicitly moved out of v2.2.0 rather than left open-ended — region management screen, per-game ping thresholds, and a real "edit existing game" UI all move to v2.3.0 as net-new features rather than fixes to something broken. The psutil-based Server Address auto-fill investigation is folded into the report-system trace collection feature's scope instead of being built separately, since both need the same underlying connection-filtering logic. v2.2.0's actual shipped scope: Add Game auto-detection, region-separation data architecture, the duplicate-game-name fix, and the full endpoint + exe audit across all 21 default games.
 
 > COMING SOON: Stop pinging Frankfurt when you're playing on Joburg servers.
 
@@ -462,6 +498,10 @@ Full chain verified via the actual built `.exe`: title bar, taskbar, tray, and W
 - **Confirm workable game-server-info lookup source** before committing v2.3.0 as a real release vs. dropping it.
 - **Decide scapy vs. manual raw sockets** for v3.0.0.
 - **Tray icon cosmetic mismatch** — still shows a generic blue circle, not the shield art. Dev's call to leave as-is, low priority.
+- **FFXIV's `neolobby06.ffxiv.com` (Chaos/EU lobby) lead** — found during the Session 19 follow-up desk audit, not yet WHOIS-confirmed or live-trace-verified. Stronger regional-split candidate than originally scoped; needs verification before any code change.
+- **`api2.ea.com` — ✅ FIXED (Session 19 follow-up).** Removed from FIFA/EA FC's endpoints in games.py; corresponding is_stale entry added to migrate_game_endpoints() in settings.py for existing installs. No collision found against existing fix entries. Applied and committed.
+- **Exe staleness audit (Session 19 follow-up)** — desk pass completed across all 21 default games via search-verification. No stale exe values found. Valorant, CS2, Overwatch 2 (EU/NA), Diablo IV, and Fortnite individually search-confirmed; Apex Legends and Path of Exile already live-verified in prior sessions; remaining 12 desk-checked against well-documented standard names with no discrepancies found. One soft flag, not acted on: a single support thread mentioned "Diablo Retail.exe" as a possible secondary process name for Diablo IV alongside the existing "Diablo IV.exe" — not added as an alias without further confirmation.
+- **v2.2.0 checklist is complete, pending version bump → tag → installer → itch.io release.** No further code changes planned before tagging.
 
 ---
 
@@ -477,4 +517,5 @@ Full chain verified via the actual built `.exe`: title bar, taskbar, tray, and W
 | 17 | **Claude Code adopted** as the primary hands-on tool, with a `CLAUDE.md` generated from this doc. **Apex fix confirmed live.** That test surfaced the **duplicate-game-name data corruption bug** — found, root-caused (catching a backwards first read from Claude Code in the process), and fixed with a real guard in `add_game()` plus a clear UI warning. **Then, the Call of Duty: Warzone investigation:** confirmed via Cloudflare's own published ranges that the old fallback endpoint was fake anycast, not real NA infrastructure. Discovered (via WHOIS on a publicly-available Call of Duty domain dataset) that CoD's real backend is Demonware, architecturally separate from Battle.net. Built a new standalone diagnostic tool, `trace_connections.py`, to trace a live game's real connections via `psutil`. Used it during a real Warzone match to find a consistent, non-CDN connection; verified via WHOIS that it's genuine Demonware infrastructure; verified via a real `tcp_ping()` call that it's reachable at a sane 248ms. Replaced the dead fallback with this confirmed-real address — explicitly **not** a full regional split, since Demonware doesn't expose fixed regional addresses the way Battle.net does. Updated `migrate_game_endpoints()` so existing installs get the fix too, catching and fixing two real bugs in the first proposed version (a staleness check that wouldn't have matched Warzone's actual bad IP, and a hardcoded `region_note` that would have mislabeled Warzone as "Steam servers") before anything was applied, plus a third subtler bug (a shared staleness check that would have falsely re-triggered on Warzone's own new correct address forever) caught in the corrected version. Verified `migrate_game_endpoints()`'s actual call site and save-triggering logic directly before approving the change. Two further instances of an AI agent's summary not matching literal content were caught and corrected this session, on top of the Apex one — now treated as a hard standing rule for the project, not a one-off lesson. Committed and pushed all of this session's fixes to GitHub; the actual version bump → tag → installer → itch.io release stays held until the rest of the v2.2.0 checklist is complete. |
 | 18 | Apex Legends and Path of Exile endpoints audited using the proven `trace_connections.py` + WHOIS method. Apex: confirmed via literal `ping_game()` source that CDN-first ordering meant its ping had likely been measuring Akamai latency; replaced both old endpoints with a single WHOIS- and live-trace-confirmed AWS address; live verification then surfaced a bigger finding — Apex's matchmaking dynamically assigns datacenters per match, confirmed via direct in-game evidence (`us-east-1` vs `sa-east-1`), generalizing the same limitation already flagged for Warzone. Path of Exile: found the same CDN-shadowing pattern, fixed with a WHOIS-confirmed Google Cloud endpoint, and verified against two independent ground-truth numbers (an in-game gateway screenshot and live in-app testing) with the tightest margin of any fix this session; also fixed a stale `exe` value, which required extending `migrate_game_endpoints()` to support exe-field migrations — a capability that didn't exist before tonight. Also resolved the dev's "missing games" question: not a bug, just 15 of 21 default games sitting disabled in the dev's own `games.json`; all 21 set to enabled for ongoing testing. Both fixes committed and pushed individually; the version bump stays held until the rest of the v2.2.0 checklist is complete. |
 | 19 | World of Warcraft endpoint DNS/WHOIS-checked (resolves to Google Cloud, Netherlands) — inconclusive without a live trace, since ownership data alone can't distinguish a real cloud-hosted Blizzard backend from a login-layer front, and the dev has no active WoW/Classic subscription to test further. Shipping v2.2.0 with the endpoint unchanged and unverified, relying on player error reports. No subscription bypass considered or attempted. Valorant also audited this session — live trace consistently showed only TCP traffic; root cause confirmed directly via raw `netstat` showing Valorant's UDP sockets have no recorded remote peer (`*:*`), meaning real match traffic uses unconnected UDP sockets invisible to any OS-connection-table tool, not a permissions/anti-cheat issue. Shipping Valorant's endpoints unchanged, documented as login/API latency only. Surfaced a third, distinct class of audit-blocking issue for the project, now a standing architecture fact. CS2 and Dota 2 also addressed this session: CS2 confirmed via live `netstat` trace to route through Valve's Steam Datagram Relay (SDR), which deliberately hides server IPs from clients as an anti-DDoS measure — a more specific, by-design root cause than Valorant's generic unconnected-UDP finding. Dota 2 documented by architectural inference only (dev doesn't own the game) given its shared Valve/Steamworks SDR foundation with CS2. Both ship with existing endpoints unchanged, already honestly labeled "Steam servers." League of Legends also audited this session — live `netstat` trace during an active ARAM confirmed the same unconnected-UDP wall as Valorant, this time via a two-process architecture (`LeagueClient.exe` handling CDN/chat, `League of Legends.exe` showing zero external TCP). Ships unchanged. Also flagged an open labeling-consistency question: Valorant's and LoL's `region_note` values may overstate what's actually measured, the same issue Apex's label had before Session 18's fix — not resolved this session. |
+| 19 (follow-up) | Desk-only DNS/WHOIS audit of the remaining 11 default games (Fortnite, PUBG, FFXIV, Diablo IV, FIFA/EA FC, Rocket League, Minecraft, GTA Online, R6 Siege, Destiny 2, Lost Ark) — no live trace, no code changes, same treatment as WoW. Confirmed `api2.ea.com` is dead (NXDOMAIN) — flagged as a standalone fix. Found a list-order effect on Fortnite/Rocket League and R6 Siege where identical CDN-vs-real endpoint pairs win or lose purely based on which is listed first. FFXIV elevated to a stronger regional-split candidate after finding genuine named per-datacenter lobby servers (`neolobby06.ffxiv.com` for Chaos/EU) distinct from the currently-used global `frontier.ffxiv.com` — not yet verified or applied. Two new features scoped for later: an opt-in player report-system trace feature (fast-follow after v2.2.0) and a future personal-use-only JackalNode tool to automate the WHOIS/CDN filtering this audit required — the latter explicitly designed to be agent-operable for the dev's in-progress personal AI assistant. |
 

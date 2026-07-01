@@ -139,6 +139,13 @@ def migrate_game_endpoints(games_list):
             'region_note': 'Riot account/API layer (not match server)',
             'region_note_stale': lambda rn: rn == 'EUW',
         },
+        'FIFA / EA FC': {
+            'endpoints': [
+                {'host': 'ea.com', 'port': 443},
+            ],
+            'region_note': 'EA servers',
+            'is_stale': lambda hosts: 'api2.ea.com' in hosts,
+        },
     }
     changed = False
     for game in games_list:

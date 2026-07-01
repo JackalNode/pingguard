@@ -208,7 +208,6 @@ DEFAULT_GAMES = [
         "category": "Sports",
         "endpoints": [
             {"host": "ea.com", "port": 443},
-            {"host": "api2.ea.com", "port": 443},
         ],
         "region_note": "EA servers"
     },
