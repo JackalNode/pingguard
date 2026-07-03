@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
 
 a = Analysis(
     ['main.py'],
@@ -25,9 +26,10 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
+    a.binaries if sys.platform != 'darwin' else [],
+    a.datas if sys.platform != 'darwin' else [],
     [],
+    exclude_binaries=(sys.platform == 'darwin'),
     name='PingGuard',
     debug=False,
     bootloader_ignore_signals=False,
@@ -44,10 +46,18 @@ exe = EXE(
     icon='assets/icon.ico',
 )
 
-import sys
 if sys.platform == 'darwin':
-    app = BUNDLE(
+    coll = COLLECT(
         exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name='PingGuard',
+    )
+    app = BUNDLE(
+        coll,
         name='PingGuard.app',
         icon=None,
         bundle_identifier=None,

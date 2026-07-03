@@ -38,3 +38,10 @@ jobs:
           name: PingGuard-macos-test
           path: PingGuard-macos-test.zip
           retention-days: 14
+
+      - name: Upload PyInstaller warnings
+        uses: actions/upload-artifact@v4
+        with:
+          name: PingGuard-macos-warnings
+          path: build/pingguard/warn-pingguard.txt
+          retention-days: 14
