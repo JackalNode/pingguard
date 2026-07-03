@@ -43,3 +43,12 @@ exe = EXE(
     entitlements_file=None,
     icon='assets/icon.ico',
 )
+
+import sys
+if sys.platform == 'darwin':
+    app = BUNDLE(
+        exe,
+        name='PingGuard.app',
+        icon=None,
+        bundle_identifier=None,
+    )

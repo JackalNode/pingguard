@@ -20,7 +20,10 @@ standard library (winreg, json, os, re).
 import json
 import os
 import re
-import winreg
+import sys
+
+if sys.platform == "win32":
+    import winreg
 
 
 class DetectedGame:
@@ -237,6 +240,8 @@ def detect_battlenet_games():
     registry entry yet, so it won't appear here. Acceptable gap for v1 -
     only revisit if it turns out to affect real users.
     """
+    if sys.platform != "win32":
+        return []
     games = []
     uninstall_roots = [
         (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
