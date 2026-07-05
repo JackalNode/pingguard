@@ -16,7 +16,7 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 
 ## Current State
 
-- **Version:** v2.1.0 shipped. v2.2.0 (per-game region management) in progress — see Roadmap.
+- **Version:** v2.2.0 shipped and live (GitHub + itch.io). v2.3.0 not yet started — see roadmap.
 - **Platform:** Windows only (macOS/Linux Beta existed in v2.0.4 but pipeline is Windows-only now).
 - **Live on:** `jackalnode.itch.io/pingguard` and `github.com/JackalNode/pingguard`
 - **CI/CD:** GitHub Actions — tag push → cloud build → installer attached to release automatically.
@@ -24,7 +24,7 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 - **Process detection:** confirmed working live (Session 17) — Apex Legends "Running" bar and ping history both updated correctly during a real launch.
 - **`trace_connections.py` (Session 17):** standalone script (not part of the shipped app) that uses `psutil` to list a running game's real active network connections. Built to verify Warzone's server address; reusable for auditing any other game, and a proof-of-concept for the psutil-based Server Address auto-fill idea.
 - **All 21 `DEFAULT_GAMES` entries are currently enabled** in the dev's `games.json` (set Session 18 for endpoint-audit testing; dev intends to leave as-is).
-- **Five games audited Session 19, all documentation-only (no code changes).** WoW: DNS/WHOIS-checked, inconclusive. Valorant + League of Legends: confirmed architecturally blocked (unconnected UDP) — LoL confirms this is a Riot company-wide pattern, not a Valorant one-off. CS2: confirmed via live `netstat`, Valve SDR deliberately hides server IPs by design. Dota 2: inferred from CS2's SDR finding. All five shipping unchanged.
+- **All 21 default games audited across Sessions 18–19 + follow-up.** Warzone, Apex, and PoE: CDN-shadowing fixed with verified endpoints. WoW: inconclusive (no active subscription). Valorant, LoL: architecturally blocked (unconnected UDP, Riot company-wide pattern). CS2, Dota 2: architecturally blocked (Valve SDR deliberately hides server IPs). Remaining 11: desk-audited (DNS/WHOIS only, no code changes). `api2.ea.com` (FIFA/EA FC) confirmed dead and removed.
 
 ---
 
@@ -229,7 +229,7 @@ Existing endpoints (`euw1.pvp.net:443`, `eu.api.riotgames.com:443`) are account/
 
 | File | Notes |
 |------|-------|
-| `main.py` | Version string `2.1.0`. AppUserModelID set before QApplication. |
+| `main.py` | Version string `2.2.0`. AppUserModelID set before QApplication. |
 | `app.py` | Never reads `game["exe"]` directly — only consumes `ping_worker.get_running_games()`. |
 | `main_window.py` | `_on_add_game()` checks `add_game()` return value; shows warning on duplicate. Never reads `game["exe"]` directly. `_populate_games()` filters on `enabled` boolean only — no category or search filtering. |
 | `settings.py` | `GameManager`. `add_game()` enforces unique names (case-insensitive), returns True/False. `migrate_game_endpoints()` restructured: each entry in `fixes` carries its own `is_stale` lambda and `region_note` — CS2, Dota 2, Call of Duty: Warzone, Apex Legends, Path of Exile, Valorant, and League of Legends all present. Apply loop optionally writes `exe` when the fix dict carries an `'exe'` key (Session 18); optionally updates `region_note` when the fix dict carries a `region_note_stale` lambda that matches the current value (Session 19) — both guarded, existing entries without those keys are unaffected. `migrate_game_regions()` unchanged. `update_game()` exists but has no UI caller. |
@@ -266,30 +266,13 @@ Existing endpoints (`euw1.pvp.net:443`, `eu.api.riotgames.com:443`) are account/
 
 ---
 
-## v2.2.0 Remaining Work
-
-- `🟡` World of Warcraft endpoint audited (Session 19) — DNS/WHOIS-checked, inconclusive without live trace (no active subscription). Shipping unchanged, unverified, relying on player error reports.
-- `🟡` Valorant endpoint audited (Session 19) — architecturally blocked (unconnected UDP, class 3 issue). Shipping unchanged.
-- `🟡` CS2 endpoint audited (Session 19) — architecturally blocked via Valve SDR; server IPs deliberately hidden by design. Shipping unchanged — already honestly labeled.
-- `🟡` Dota 2 endpoint status documented (Session 19) — inferred from CS2's SDR finding, not directly traced. Shipping unchanged.
-- `🟡` League of Legends endpoint audited (Session 19) — architecturally blocked, same unconnected-UDP pattern as Valorant, confirmed via live `netstat` during active ARAM. Shipping unchanged.
-- `🔲` Audit remaining ~11 `DEFAULT_GAMES` entries for blended-region-fallback issue and exe staleness
-- `🔲` Real per-game region management UI
-- `🔲` Per-game ping thresholds
-- `🔲` Real "edit existing game" UI — `update_game()` exists in `settings.py` but has no caller anywhere
-- `🔲` Investigate psutil-based Server Address auto-fill in the actual Add Game dialog (filtering logic needed before it's UI-ready)
-- `🔲` Confirm `remove_game()` has a visible button wired to it end to end
-- `🔲` Confirm whether Apex Legends's `exe` alias list ever reached the dev's `games.json` via a real migration (the exe-migration mechanism didn't exist until Session 18 — worth a direct check next session)
-
----
-
 ## Roadmap
 
 | Version | Status | Description |
 |---|---|---|
 | v2.0.5 / v2.0.6 | ✅ Shipped | Bug fixes, infrastructure parity |
 | v2.1.0 | ✅ Shipped | Icon, light/dark theme, Settings cleanup |
-| v2.2.0 | 🟡 In progress | Per-game region management (see checklist above) |
+| v2.2.0 | ✅ Shipped | Per-game region management, full 21-game endpoint audit, exe staleness check |
 | v2.3.0 | Tentative | Game search / server auto-fill — psutil approach is the leading candidate; only proceeds if a workable implementation is confirmed |
 | v3.0.0 | Future | Network diagnostics: traceroute, hop latency, ISP ID, packet loss. Real-time per-match server detection is a confirmed motivation (dynamic datacenter assignment observed on both Warzone and Apex). Elevation approach (scapy vs. raw sockets) not yet decided. |
 
@@ -313,3 +296,4 @@ Existing endpoints (`euw1.pvp.net:443`, `eu.api.riotgames.com:443`) are account/
 - **v2.3.0 data source:** psutil approach is the candidate to investigate first.
 - **v3.0.0 elevation:** scapy vs. manual raw sockets — not decided.
 - **Tray icon:** still shows generic blue circle instead of shield art. Dev's call to leave as low priority.
+- **FFXIV `neolobby06.ffxiv.com` lead** — found during Session 19 desk audit, genuine named per-datacenter lobby server for Chaos/EU data center. Not yet WHOIS-confirmed or live-trace-verified. Stronger regional-split candidate than the current `frontier.ffxiv.com` global entry.

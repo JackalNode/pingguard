@@ -1,7 +1,7 @@
 # PingGuard — Context Document
 > Paste alongside JackalNode_Context.md at the start of any PingGuard session — though as of Session 17, the primary working method has shifted (see Tooling section below).
 > Built fresh in Session 12, modeled on StartGuard_Context.md's structure (StartGuard is the blueprint — see master doc Standing Rule #8).
-> Last updated: Session 19 — Five games audited this session, all documentation-only (no code changes). WoW: DNS/WHOIS-checked, inconclusive. Valorant + League of Legends: confirmed architecturally blocked (unconnected UDP) — LoL's confirmation upgrades this from a Valorant one-off to a confirmed Riot company pattern. CS2: confirmed via live `netstat` trace, Valve SDR deliberately hides server IPs by design. Dota 2: inferred from CS2's SDR finding. See each game's dedicated section for full detail. Follow-up desk audit of the remaining 11 default games completed same session — see new section below.
+> Last updated: v2.2.0 SHIPPED. Session 19 + follow-up complete — all 21 default games audited, endpoint fixes applied, exe staleness checked, v2.2.0 tagged and released to GitHub and itch.io.
 
 ---
 
@@ -29,7 +29,7 @@ Network/ping monitor for gamers — checks your gaming ping before you get stuck
 ---
 
 ## Current State
-- **Version:** v2.1.0 shipped and live. v2.2.0 (per-game region management) is **in progress, not yet shipped** — see Session 15/16/17 below for what's done vs. still open.
+- **Version:** v2.2.0 shipped and live (GitHub + itch.io). v2.3.0 not yet started — see roadmap.
 - **Platforms:** Windows (live). macOS / Linux — Beta builds existed in v2.0.4 but not yet rebuilt. See Open Questions.
 - **Live on itch.io** under the JackalNode account, same pricing model as StartGuard ($0 or donate)
 - **GitHub Actions pipeline:** ✅ Live and working — tag push → cloud build → installer attached to release automatically
@@ -501,7 +501,7 @@ A personal-use-only tool (distinct from the public JackalNode app pipeline — n
 - **FFXIV's `neolobby06.ffxiv.com` (Chaos/EU lobby) lead** — found during the Session 19 follow-up desk audit, not yet WHOIS-confirmed or live-trace-verified. Stronger regional-split candidate than originally scoped; needs verification before any code change.
 - **`api2.ea.com` — ✅ FIXED (Session 19 follow-up).** Removed from FIFA/EA FC's endpoints in games.py; corresponding is_stale entry added to migrate_game_endpoints() in settings.py for existing installs. No collision found against existing fix entries. Applied and committed.
 - **Exe staleness audit (Session 19 follow-up)** — desk pass completed across all 21 default games via search-verification. No stale exe values found. Valorant, CS2, Overwatch 2 (EU/NA), Diablo IV, and Fortnite individually search-confirmed; Apex Legends and Path of Exile already live-verified in prior sessions; remaining 12 desk-checked against well-documented standard names with no discrepancies found. One soft flag, not acted on: a single support thread mentioned "Diablo Retail.exe" as a possible secondary process name for Diablo IV alongside the existing "Diablo IV.exe" — not added as an alias without further confirmation.
-- **v2.2.0 checklist is complete, pending version bump → tag → installer → itch.io release.** No further code changes planned before tagging.
+- **v2.2.0 — ✅ SHIPPED.** Tagged, built via GitHub Actions, installer uploaded to itch.io.
 
 ---
 
