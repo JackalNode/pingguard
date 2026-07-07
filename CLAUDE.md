@@ -17,7 +17,7 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 ## Current State
 
 - **Version:** v2.2.0 shipped and live (GitHub + itch.io). v2.3.0 not yet started — see roadmap.
-- **Platform:** Windows only (macOS/Linux Beta existed in v2.0.4 but pipeline is Windows-only now).
+- **Platform:** Windows only in production (macOS/Linux Beta existed in v2.0.4 but pipeline is Windows-only now). A manual macOS test-build workflow was added Session 20 — see dedicated section below; still experimental, not part of the shipping pipeline.
 - **Live on:** `jackalnode.itch.io/pingguard` and `github.com/JackalNode/pingguard`
 - **CI/CD:** GitHub Actions — tag push → cloud build → installer attached to release automatically.
 - **Auto-update:** wired via `updater.py`.
@@ -225,6 +225,33 @@ Existing endpoints (`euw1.pvp.net:443`, `eu.api.riotgames.com:443`) are account/
 
 ---
 
+## macOS Stage A Test Build (Session 20)
+
+**Goal:** get a real `.app` onto a tester's Mac to start closing the macOS gap — Stage A only (package + launch), not a full feature-parity pass.
+
+**Three fixes applied to support the build:**
+1. **`game_detector.py`:** guarded the `winreg` import — the platform check was moved to before *any* unguarded reference to `winreg`, not just wrapping the `import` line itself. An import-only guard would still crash on non-Windows if any code path referenced `winreg` before the platform check ran.
+2. **`pingguard.spec`:** added a `darwin`-only `BUNDLE()` block so PyInstaller produces a real `.app` bundle on macOS instead of a bare executable.
+3. **Follow-up, same session:** switched the darwin build from `onefile` to `onedir` mode after PyInstaller's own build log warned that onefile mode clashes with macOS security. Windows build is untouched — still onefile.
+
+**New file:** `.github/workflows/build-macos-test.yml` — manual `workflow_dispatch` only (not part of the tag-triggered release pipeline), runs on `macos-14` (Apple Silicon), builds via PyInstaller, zips the `.app` with `ditto`, uploads as a workflow artifact rather than attaching to a GitHub Release.
+
+**Verified before sending to the tester:**
+- `.app` bundle structure correct — `Frameworks` folder present, confirming `onedir` mode actually took effect.
+- Size sane (~27MB).
+- `warn-pingguard.txt` checked — only expected/harmless missing-module warnings.
+- The one `winreg` reference in `app.py` confirmed safely platform-gated, not a second unguarded import site.
+
+**Status: sent to tester**, along with a plain-English "how to open + what to test" guide. **Not yet confirmed to run correctly end-to-end on real hardware** — only confirmed to package correctly. Awaiting the tester's actual usage report.
+
+---
+
+## Security Incident — Resolved (Session 20)
+
+Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or StartGuard. Full audit of both GitHub repos (commit history, workflow files, `requirements.txt`, `updater.py`, `reporter.py`) found no tampering. Fresh VirusTotal scans of both apps' actual release installers came back clean apart from well-documented single-vendor heuristic false positives (`Wacatac.B!ml` on PingGuard, a generic low-signal flag on StartGuard) — the same known PyInstaller false-positive pattern already documented in this project. No user-facing action was needed. The local dev machine was reinstalled; the project folder survived intact on a separate drive; the toolchain (git, Claude Code) was reinstalled and reconfigured.
+
+---
+
 ## File Inventory
 
 | File | Notes |
@@ -235,7 +262,7 @@ Existing endpoints (`euw1.pvp.net:443`, `eu.api.riotgames.com:443`) are account/
 | `settings.py` | `GameManager`. `add_game()` enforces unique names (case-insensitive), returns True/False. `migrate_game_endpoints()` restructured: each entry in `fixes` carries its own `is_stale` lambda and `region_note` — CS2, Dota 2, Call of Duty: Warzone, Apex Legends, Path of Exile, Valorant, and League of Legends all present. Apply loop optionally writes `exe` when the fix dict carries an `'exe'` key (Session 18); optionally updates `region_note` when the fix dict carries a `region_note_stale` lambda that matches the current value (Session 19) — both guarded, existing entries without those keys are unaffected. `migrate_game_regions()` unchanged. `update_game()` exists but has no UI caller. |
 | `games.py` | `DEFAULT_GAMES`. Apex exe is `["r5apex.exe", "r5apex_dx12.exe"]`. Apex endpoint is `100.50.20.250:9000` (WHOIS-confirmed AWS/EA, region_note "EA servers (US-East, AWS)"). OW2 split into (EU)/(NA). Warzone second endpoint is `185.34.106.103:3074` (confirmed Demonware). Path of Exile endpoint is `34.144.246.52:6112` (WHOIS-confirmed Google Cloud, region_note "South Africa servers (Google Cloud)"); exe is `["PathOfExile.exe", "PathOfExileSteam.exe"]`. Valorant and League of Legends region_note corrected to "Riot account/API layer (not match server)" (Session 19). |
 | `ping_engine.py` | `get_process_names_for_game()` + `_as_list()` helper. `check_running_games()` matches alias-set overlap. `tcp_ping()` reused directly to verify Warzone, Apex, and PoE endpoints. `ping_game()` is first-success-wins — walks endpoints in order, returns on first success. |
-| `game_detector.py` | Scans Steam/Epic/Riot/Battle.net for installed games. All detectors independently try/except. |
+| `game_detector.py` | Scans Steam/Epic/Riot/Battle.net for installed games. All detectors independently try/except. `winreg` import guarded behind a platform check placed before any unguarded reference (Session 20, macOS build support). |
 | `add_game_dialog.py` | Detected-games dropdown, Browse button, game-request report hook. Dialog height 420×555. Server Address field has label, tooltip, and hint. All confirmed working via live testing. |
 | `reporter.py` | `send_report()` + `send_game_request()`. Webhook from `constants.py`. |
 | `setup_wizard.py` | First-run wizard. Region step before games step. AWS endpoints for latency probing. Does not call `add_game()`. |
@@ -244,6 +271,8 @@ Existing endpoints (`euw1.pvp.net:443`, `eu.api.riotgames.com:443`) are account/
 | `trace_connections.py` | Standalone diagnostic script — not part of the shipped app. Uses `psutil` to list a named running process's active connections. Built for Warzone endpoint verification; reusable for any game audit going forward. |
 | `constants.py` | Discord webhook (gitignored). |
 | `updater.py` | Auto-update shared logic. |
+| `pingguard.spec` | darwin-only `BUNDLE()` added; darwin build mode switched onefile → onedir (Session 20). Windows build unchanged (still onefile). |
+| `.github/workflows/build-macos-test.yml` | New (Session 20). Manual `workflow_dispatch` only, macos-14 runner, builds + zips `.app` via `ditto`, uploads as a workflow artifact — not part of the tag-triggered release pipeline. |
 
 ---
 
@@ -280,6 +309,7 @@ Existing endpoints (`euw1.pvp.net:443`, `eu.api.riotgames.com:443`) are account/
 
 ## Open Questions
 
+- **Windows auto-update crash — real user report (Session 20, post-v2.2.0):** a user hit `Failed to load Python DLL ... _MEIxxxxx\python311.dll ... module could not be found` immediately after auto-update fetched a new version and prompted to launch. Classic PyInstaller onefile self-extraction failure — most likely antivirus interference deleting/quarantining a file during the onefile bootloader's temp-folder extraction on launch. Connects directly to the macOS onefile-vs-security warning found this same session (why the macOS build moved to onedir). Not yet root-caused on Windows — next step is checking the affected user's Windows Security > Protection History around the crash timestamp to confirm or rule out AV interference. Real candidate for switching the Windows build to onedir too, not just a one-off fluke — same underlying weak spot, different trigger (AV vs Gatekeeper).
 - **Whether `eu.battle.net` is measuring the right thing for Warzone** — it's the Blizzard login layer, not Demonware's game backend. May only reflect login-service latency, not real match-server latency.
 - **GCP address on port 1119** (`35.204.122.188`) seen during Warzone trace — same port as WoW's real game-data endpoint in `games.py`. Not investigated.
 - **Real-time per-match server detection** — confirmed on both Warzone (Demonware) and Apex (AWS multi-region) that a single hardcoded endpoint can't represent "the server you'd actually play in" for titles with dynamic datacenter assignment. `trace_connections.py` proves the psutil approach works; turning it into a live in-app feature is the real fix. v3 scope.

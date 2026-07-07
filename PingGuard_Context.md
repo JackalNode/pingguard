@@ -1,7 +1,7 @@
 # PingGuard — Context Document
 > Paste alongside JackalNode_Context.md at the start of any PingGuard session — though as of Session 17, the primary working method has shifted (see Tooling section below).
 > Built fresh in Session 12, modeled on StartGuard_Context.md's structure (StartGuard is the blueprint — see master doc Standing Rule #8).
-> Last updated: v2.2.0 SHIPPED. Session 19 + follow-up complete — all 21 default games audited, endpoint fixes applied, exe staleness checked, v2.2.0 tagged and released to GitHub and itch.io.
+> Last updated: v2.2.0 SHIPPED. Session 19 + follow-up complete — all 21 default games audited, endpoint fixes applied, exe staleness checked, v2.2.0 tagged and released to GitHub and itch.io. Session 20: macOS Stage A test build completed and sent to tester; dev PC security incident investigated and resolved (no tampering found); new Windows auto-update crash report flagged as an open issue.
 
 ---
 
@@ -30,7 +30,7 @@ Network/ping monitor for gamers — checks your gaming ping before you get stuck
 
 ## Current State
 - **Version:** v2.2.0 shipped and live (GitHub + itch.io). v2.3.0 not yet started — see roadmap.
-- **Platforms:** Windows (live). macOS / Linux — Beta builds existed in v2.0.4 but not yet rebuilt. See Open Questions.
+- **Platforms:** Windows (live). macOS / Linux — Beta builds existed in v2.0.4 but not yet rebuilt for production. **macOS Stage A test build completed Session 20** via a new manual GitHub Actions workflow, sent to a real tester — see dedicated section below. Still experimental, not part of the tag-triggered release pipeline. See Open Questions.
 - **Live on itch.io** under the JackalNode account, same pricing model as StartGuard ($0 or donate)
 - **GitHub Actions pipeline:** ✅ Live and working — tag push → cloud build → installer attached to release automatically
 - **Auto-update:** ✅ Wired in via shared `updater.py`
@@ -347,6 +347,50 @@ Network/ping monitor for gamers — checks your gaming ping before you get stuck
 
 ---
 
+## macOS Stage A Test Build (Session 20)
+
+**Goal:** get a real, launchable `.app` onto a tester's Mac to start closing the macOS gap that's existed since the pipeline went Windows-only. Deliberately scoped as Stage A only — confirm the app packages and launches on real hardware — not a full feature-parity or App Store pass.
+
+**Three fixes applied, in sequence, to make the build possible:**
+
+1. **`game_detector.py` — `winreg` import guard corrected.** The Windows registry module (`winreg`) doesn't exist on macOS/Linux at all — attempting to import it unconditionally crashes at module-load time on any non-Windows platform. The fix moved the platform check to before *any* unguarded reference to `winreg`, not just wrapping the `import` statement itself. An import-only guard (e.g. a bare `try/except ImportError` around just the `import winreg` line) would still crash if any code path later referenced the name directly without re-checking platform — the actual fix checks platform once and gates every reference behind it.
+
+2. **`pingguard.spec` — darwin-only `BUNDLE()` block added.** PyInstaller's `.spec` file controls what kind of output gets produced. Without a `BUNDLE()` call, PyInstaller on macOS would produce a bare Unix executable, not a real `.app` — something a typical Mac user has no idea how to launch. Added a `sys.platform == 'darwin'` conditional block so the Windows build path is completely untouched.
+
+3. **Follow-up fix, same session: onefile → onedir for the darwin build only.** After the first darwin build attempt, PyInstaller's own build log emitted a warning that onefile mode is known to clash with macOS security expectations (Gatekeeper/notarization assume a normal directory-structured `.app`, not a single self-extracting binary masquerading as one). Switched the darwin build target to `onedir` mode in response to PyInstaller's own documented warning, not a guess. Windows build stays on `onefile` — unrelated platform, unrelated risk profile, no reason to change something that isn't broken there. (Turns out to be directly relevant to the separate Windows auto-update crash flagged below — same underlying onefile fragility, different trigger.)
+
+**New file: `.github/workflows/build-macos-test.yml`.** Deliberately kept separate from the existing tag-triggered `build.yml` release pipeline:
+- Trigger: `workflow_dispatch` only — manual, on-demand, never fires automatically.
+- Runner: `macos-14` (Apple Silicon) — matches real modern Mac hardware, not an Intel runner.
+- Builds via PyInstaller using the updated `.spec`, then zips the resulting `.app` using macOS's own `ditto` utility rather than a generic zip tool — `ditto` preserves macOS-specific bundle metadata (resource forks, extended attributes) that a plain `zip` command can silently strip, which would produce a corrupted-looking `.app` on the receiving end.
+- Uploads the zip as a **GitHub Actions workflow artifact**, not attached to a GitHub Release — this is explicitly a test build, not a versioned public release, and shouldn't appear alongside real tagged releases.
+
+**Verification performed before sending anything to the tester:**
+- Downloaded the workflow artifact and confirmed the `.app` bundle's internal structure — a `Frameworks` folder was present inside the bundle, which is the concrete, checkable signal that `onedir` mode actually took effect (onefile mode wouldn't produce this folder structure).
+- Size sanity-checked: ~27MB, consistent with a Python/PyQt app bundle, not suspiciously bloated or truncated.
+- PyInstaller's own `warn-pingguard.txt` build-warning log was read directly rather than assumed clean — contained only expected, harmless missing-module warnings (the normal noise for optional/platform-specific imports PyInstaller can't resolve on the build machine), nothing indicating a real packaging problem.
+- Searched for remaining `winreg` references across the codebase to confirm the `game_detector.py` fix was the only site that mattered — found one additional reference inside `app.py`, confirmed it was already safely platform-gated (not a second unguarded import that would have crashed independently of the `game_detector.py` fix).
+
+**Delivered to the tester** along with a plain-English "how to open this + what to actually click on and test" guide, written for a non-technical recipient (same target-audience framing PingGuard uses everywhere else).
+
+**Explicitly not yet true — don't overstate this milestone:** this confirms the build *packages* correctly. It does **not** yet confirm the app *runs* correctly end-to-end on real macOS hardware — no tester usage report has come back yet. Treat as "packaging verified, runtime unverified" until that report arrives.
+
+---
+
+## Security Incident — Resolved (Session 20)
+
+**Factual summary only — no speculation, no unresolved threads left dangling.** Nathan's dev PC had a genuine malware infection during this period. It was unrelated to PingGuard or StartGuard — logged here for completeness and because it triggered a real supply-chain audit of both projects, not because the malware itself has any further relevance to this codebase.
+
+**Audit performed, both GitHub repos:** commit history, all workflow files (`.github/workflows/*`), `requirements.txt`, `updater.py`, and `reporter.py` were reviewed directly for any sign of tampering, injected dependencies, or modified build/release logic. **Found: no tampering in either repo.**
+
+**Fresh VirusTotal scans run against both apps' actual current release installers** (not source, the real shipped binaries): both came back clean apart from well-documented, low-signal false positives already understood from prior sessions — `Wacatac.B!ml` (a single-vendor Microsoft Defender heuristic) on PingGuard's installer, and a similarly generic low-signal flag on StartGuard's. This is the same known PyInstaller-produced-executable false-positive pattern already documented elsewhere in this project's history, not a new or different signature.
+
+**Outcome: no user-facing action was required.** No advisory, no forced update, no installer pull — the installers themselves were never compromised.
+
+**Machine-level remediation:** the local dev machine was reinstalled clean. The project folder (this repo, working tree, everything) survived intact because it lives on a separate physical drive from the OS install. Toolchain — git, Claude Code — was reinstalled and reconfigured on the fresh OS install before resuming work this session.
+
+---
+
 ## Process Detection — Architecture (Hardened Session 16, Confirmed Live Session 17)
 
 **Confirmed via direct review of `app.py`, `main_window.py`, and `ping_engine.py`:** the `exe` field is used *only* for "is this game currently running" detection inside `PingWorker.check_running_games()`. It has zero connection to the actual ping test, which runs purely off `host`/`port`. A stale/wrong `exe` value can never break ping accuracy — it only affects the "▶ Running" badge and the check-on-launch trigger.
@@ -392,7 +436,7 @@ Full chain verified via the actual built `.exe`: title bar, taskbar, tray, and W
 | `main_window.py` | ✅ Updated (Session 17) | `_on_add_game()` now checks `add_game()`'s return value and shows a `QMessageBox.warning` on a duplicate name. Confirmed it never reads `game["exe"]` directly. |
 | `games.py` | ✅ Updated (Session 16, 17 & 18) | Apex Legends `exe` alias list (Session 16). Warzone endpoint fix (Session 17). Apex Legends `endpoints`/`region_note` fixed with a WHOIS- and live-trace-confirmed AWS address (Session 18). Path of Exile `endpoints` replaced with a WHOIS- and live-trace-confirmed Google Cloud address (`34.144.246.52:6112`); `region_note` corrected; `exe` updated to alias list `["PathOfExile.exe", "PathOfExileSteam.exe"]` (Session 18). |
 | `add_game_dialog.py` | ✅ Updated (Session 16), confirmed working Session 17 | Server Address field clarity fix: relabeled, tooltip added, explanatory hint added, dialog height bumped 520→555. |
-| `game_detector.py` | ✅ Stable since Session 15 | Steam/Epic/Riot/Battle.net detection. |
+| `game_detector.py` | ✅ Updated (Session 20) | Steam/Epic/Riot/Battle.net detection. `winreg` import guard corrected for macOS test build — platform check now placed before any unguarded reference, not just wrapping the import line. |
 | `reporter.py` | ✅ Stable since Session 15 | `send_game_request()` + `send_report()`. |
 | `setup_wizard.py` | ✅ Reviewed Session 17, unchanged | Confirmed it does not call `GameManager.add_game()`. |
 | `ping_engine.py` | ✅ Updated (Session 16), confirmed working live Session 17 | `get_process_names_for_game()` + `_as_list()` helper. `tcp_ping()` reused directly (unmodified) this session to verify Warzone's new Demonware endpoint — 248ms, successful, confirming the function works correctly against genuinely distant real infrastructure, not just the games already in `DEFAULT_GAMES`. |
@@ -400,7 +444,9 @@ Full chain verified via the actual built `.exe`: title bar, taskbar, tray, and W
 | `logger.py` | 🆕 Discovered Session 15, not touched | CSV session logging for ping history, 30-day auto-cleanup. |
 | `theme.py` | ✅ Stable | No changes since Session 14. |
 | `reporter.py` / `constants.py` / `constants_example.py` | ✅ Stable | Webhook handling unchanged. |
-| `pingguard.spec` / `PingGuard.iss` / `requirements.txt` / `.github/workflows/build.yml` / `.gitignore` | ✅ Stable | No changes this session. |
+| `pingguard.spec` | ✅ Updated (Session 20) | Darwin-only `BUNDLE()` block added; darwin build target switched onefile → onedir after PyInstaller's own build-log warning. Windows build path unchanged (still onefile). |
+| `.github/workflows/build-macos-test.yml` | 🆕 New (Session 20) | Manual `workflow_dispatch` only, `macos-14` runner. Builds via PyInstaller, zips the `.app` with `ditto` (preserves macOS bundle metadata a plain zip would strip), uploads as a workflow artifact — not attached to a GitHub Release, deliberately separate from the tag-triggered `build.yml` pipeline. |
+| `PingGuard.iss` / `requirements.txt` / `.github/workflows/build.yml` / `.gitignore` | ✅ Stable | No changes this session. |
 
 ---
 
@@ -479,6 +525,7 @@ A personal-use-only tool (distinct from the public JackalNode app pipeline — n
 ---
 
 ## Still To Do / Open Questions
+- **NEW — Windows auto-update crash, real user report (Session 20, post-v2.2.0):** a real user hit `Failed to load Python DLL ... _MEIxxxxx\python311.dll ... module could not be found` immediately after auto-update fetched a new version and prompted them to launch it. This is a classic PyInstaller onefile self-extraction failure — the most likely cause is antivirus software deleting or quarantining a file during the temp-folder extraction the onefile bootloader performs on every launch. Directly connects to the architectural fragility confirmed this same session on macOS (PyInstaller's own onefile-vs-security warning, which is why the macOS test build was switched to onedir mode) — same underlying weak spot, different trigger (AV vs. Gatekeeper). **Not yet root-caused on Windows.** Next step: check the affected user's Windows Security > Protection History around the crash timestamp to confirm or rule out AV interference. Flagged as a real candidate for switching the Windows build to onedir mode too, not dismissed as a one-off fluke.
 - **Audit the other ~11 default games** for the same blended-region-fallback issue — `trace_connections.py` plus a WHOIS lookup on whatever address it surfaces is now the proven process; CoD Warzone is the worked example.
 - **Audit the other ~11 default games for exe staleness** — lower priority, same "publisher renamed it" risk as Apex.
 - **Whether `eu.battle.net` itself is measuring the right thing for Warzone** — flagged but not resolved this session. Since Warzone's real backend is Demonware, not Battle.net, the existing "real" half of its endpoint pair may only reflect login-service latency, not actual match-server latency. Worth a closer look before assuming Warzone's entry is now fully correct just because the fake half was replaced.
@@ -494,7 +541,7 @@ A personal-use-only tool (distinct from the public JackalNode app pipeline — n
 - **Real per-game region management UI** — doesn't exist yet.
 - **Real "edit existing game" UI** — confirmed not to exist anywhere in the app.
 - **Server Address auto-fill for unlisted games** — `trace_connections.py` proves the psutil approach is viable in principle; building real filtering logic into the actual Add Game dialog is still future work.
-- **macOS / Linux builds** — pipeline only builds Windows now.
+- **macOS / Linux builds** — production pipeline only builds Windows. **Update (Session 20):** a manual macOS Stage A test build now exists (`.github/workflows/build-macos-test.yml`, workflow_dispatch only) and has been sent to a real tester — confirmed to package correctly (`.app` structure, size, warning log all checked), but not yet confirmed to run correctly end-to-end on real hardware. Awaiting the tester's usage report before this counts as verified. Linux has no equivalent test build yet.
 - **Confirm workable game-server-info lookup source** before committing v2.3.0 as a real release vs. dropping it.
 - **Decide scapy vs. manual raw sockets** for v3.0.0.
 - **Tray icon cosmetic mismatch** — still shows a generic blue circle, not the shield art. Dev's call to leave as-is, low priority.
@@ -518,4 +565,5 @@ A personal-use-only tool (distinct from the public JackalNode app pipeline — n
 | 18 | Apex Legends and Path of Exile endpoints audited using the proven `trace_connections.py` + WHOIS method. Apex: confirmed via literal `ping_game()` source that CDN-first ordering meant its ping had likely been measuring Akamai latency; replaced both old endpoints with a single WHOIS- and live-trace-confirmed AWS address; live verification then surfaced a bigger finding — Apex's matchmaking dynamically assigns datacenters per match, confirmed via direct in-game evidence (`us-east-1` vs `sa-east-1`), generalizing the same limitation already flagged for Warzone. Path of Exile: found the same CDN-shadowing pattern, fixed with a WHOIS-confirmed Google Cloud endpoint, and verified against two independent ground-truth numbers (an in-game gateway screenshot and live in-app testing) with the tightest margin of any fix this session; also fixed a stale `exe` value, which required extending `migrate_game_endpoints()` to support exe-field migrations — a capability that didn't exist before tonight. Also resolved the dev's "missing games" question: not a bug, just 15 of 21 default games sitting disabled in the dev's own `games.json`; all 21 set to enabled for ongoing testing. Both fixes committed and pushed individually; the version bump stays held until the rest of the v2.2.0 checklist is complete. |
 | 19 | World of Warcraft endpoint DNS/WHOIS-checked (resolves to Google Cloud, Netherlands) — inconclusive without a live trace, since ownership data alone can't distinguish a real cloud-hosted Blizzard backend from a login-layer front, and the dev has no active WoW/Classic subscription to test further. Shipping v2.2.0 with the endpoint unchanged and unverified, relying on player error reports. No subscription bypass considered or attempted. Valorant also audited this session — live trace consistently showed only TCP traffic; root cause confirmed directly via raw `netstat` showing Valorant's UDP sockets have no recorded remote peer (`*:*`), meaning real match traffic uses unconnected UDP sockets invisible to any OS-connection-table tool, not a permissions/anti-cheat issue. Shipping Valorant's endpoints unchanged, documented as login/API latency only. Surfaced a third, distinct class of audit-blocking issue for the project, now a standing architecture fact. CS2 and Dota 2 also addressed this session: CS2 confirmed via live `netstat` trace to route through Valve's Steam Datagram Relay (SDR), which deliberately hides server IPs from clients as an anti-DDoS measure — a more specific, by-design root cause than Valorant's generic unconnected-UDP finding. Dota 2 documented by architectural inference only (dev doesn't own the game) given its shared Valve/Steamworks SDR foundation with CS2. Both ship with existing endpoints unchanged, already honestly labeled "Steam servers." League of Legends also audited this session — live `netstat` trace during an active ARAM confirmed the same unconnected-UDP wall as Valorant, this time via a two-process architecture (`LeagueClient.exe` handling CDN/chat, `League of Legends.exe` showing zero external TCP). Ships unchanged. Also flagged an open labeling-consistency question: Valorant's and LoL's `region_note` values may overstate what's actually measured, the same issue Apex's label had before Session 18's fix — not resolved this session. |
 | 19 (follow-up) | Desk-only DNS/WHOIS audit of the remaining 11 default games (Fortnite, PUBG, FFXIV, Diablo IV, FIFA/EA FC, Rocket League, Minecraft, GTA Online, R6 Siege, Destiny 2, Lost Ark) — no live trace, no code changes, same treatment as WoW. Confirmed `api2.ea.com` is dead (NXDOMAIN) — flagged as a standalone fix. Found a list-order effect on Fortnite/Rocket League and R6 Siege where identical CDN-vs-real endpoint pairs win or lose purely based on which is listed first. FFXIV elevated to a stronger regional-split candidate after finding genuine named per-datacenter lobby servers (`neolobby06.ffxiv.com` for Chaos/EU) distinct from the currently-used global `frontier.ffxiv.com` — not yet verified or applied. Two new features scoped for later: an opt-in player report-system trace feature (fast-follow after v2.2.0) and a future personal-use-only JackalNode tool to automate the WHOIS/CDN filtering this audit required — the latter explicitly designed to be agent-operable for the dev's in-progress personal AI assistant. |
+| 20 | **macOS Stage A test build completed and sent to a real tester.** Three fixes applied: corrected the `winreg` import guard in `game_detector.py` (platform check moved before any unguarded reference, not just the import line), added a darwin-only `BUNDLE()` block to `pingguard.spec`, then switched the darwin build from onefile to onedir mode after PyInstaller's own build log warned onefile clashes with macOS security. New manual-only workflow, `.github/workflows/build-macos-test.yml`, builds and zips a real `.app` via `ditto` and uploads it as a workflow artifact rather than a GitHub Release. Verified before sending: bundle structure (`Frameworks` folder present, confirming onedir took effect), sane size (~27MB), clean warning log, and the one remaining `winreg` reference in `app.py` confirmed already platform-gated. Packaging is verified; runtime on real hardware is not yet confirmed — awaiting the tester's report. **Separately, resolved a security incident:** the dev's PC had a genuine malware infection, unrelated to PingGuard/StartGuard. Full audit of both GitHub repos (commit history, workflows, `requirements.txt`, `updater.py`, `reporter.py`) found no tampering; fresh VirusTotal scans of both apps' real release installers came back clean apart from already-documented single-vendor heuristic false positives. No user-facing action needed; dev machine reinstalled, project folder survived intact on a separate drive, toolchain reconfigured. **New open issue surfaced:** a real user hit a PyInstaller onefile self-extraction crash (`Failed to load Python DLL`) immediately after a Windows auto-update — likely AV interference during temp-folder extraction, and architecturally the same onefile fragility just confirmed on macOS. Not yet root-caused; flagged as a real candidate for moving the Windows build to onedir too. |
 
