@@ -3,7 +3,7 @@
 ; Build: triggered automatically by GitHub Actions on version tag push
 
 #define MyAppName "PingGuard"
-#define MyAppVersion "2.2.0"
+#define MyAppVersion "2.2.1"
 #define MyAppPublisher "JackalNode"
 #define MyAppURL "https://jackalnode.itch.io/pingguard"
 #define MyAppExeName "PingGuard.exe"
@@ -65,7 +65,7 @@ Name: "startup"; Description: "Start PingGuard with &Windows"
 
 [Files]
 ; Main executable
-Source: "{#MySourceExe}"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: ignoreversion
+Source: "{#SourcePath}dist\PingGuard\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; App icon (for uninstall display)
 Source: "{#MyIconFile}"; DestDir: "{app}\assets"; Flags: ignoreversion

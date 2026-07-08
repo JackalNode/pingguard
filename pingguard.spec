@@ -26,10 +26,10 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries if sys.platform != 'darwin' else [],
-    a.datas if sys.platform != 'darwin' else [],
+    a.binaries if sys.platform not in ('darwin', 'win32') else [],
+    a.datas if sys.platform not in ('darwin', 'win32') else [],
     [],
-    exclude_binaries=(sys.platform == 'darwin'),
+    exclude_binaries=(sys.platform in ('darwin', 'win32')),
     name='PingGuard',
     debug=False,
     bootloader_ignore_signals=False,
@@ -61,4 +61,14 @@ if sys.platform == 'darwin':
         name='PingGuard.app',
         icon=None,
         bundle_identifier=None,
+    )
+elif sys.platform == 'win32':
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name='PingGuard',
     )
