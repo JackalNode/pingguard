@@ -118,6 +118,45 @@ def send_game_request(webhook_url, game_name, note=None):
         return False, str(e)
 
 
+def send_update_report(webhook_url, issue_type, details=None):
+    """
+    Send an update-flow issue report to the developer's Discord webhook.
+    No game involved - used by updater.py for download/launch/platform-match
+    issues. Anonymous, same pattern as send_report() and send_game_request().
+    """
+    if not webhook_url:
+        return False, "No webhook configured"
+
+    try:
+        import requests
+
+        version = _get_version()
+
+        embed = {
+            "title": "🔄 Update Issue Report",
+            "color": 0xFF6B35,
+            "fields": [
+                {"name": "Issue", "value": issue_type.replace("_", " ").title(), "inline": True},
+                {"name": "Platform", "value": sys.platform, "inline": True},
+                {"name": "Details", "value": details or "No details provided", "inline": False},
+            ],
+            "footer": {"text": f"PingGuard v{version} • {datetime.now().strftime('%Y-%m-%d %H:%M')}"},
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+
+        resp = requests.post(
+            webhook_url,
+            json={"embeds": [embed]},
+            timeout=5
+        )
+        if resp.status_code in (200, 204):
+            return True, "Report sent successfully"
+        return False, f"HTTP {resp.status_code}"
+
+    except Exception as e:
+        return False, str(e)
+
+
 def send_crash_report(webhook_url, error_info):
     """Send an automatic crash report (opt-in only)."""
     if not webhook_url:

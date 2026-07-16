@@ -3,13 +3,16 @@ import requests
 import subprocess
 import tempfile
 import os
+import sys
 from packaging.version import Version
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QProgressBar
+    QLabel, QPushButton, QProgressBar, QMessageBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
+from constants import DISCORD_REPORT_WEBHOOK
+from reporter import send_update_report
 
 
 GITHUB_API = "https://api.github.com/repos/JackalNode/{repo}/releases/latest"
@@ -22,7 +25,7 @@ GITHUB_API = "https://api.github.com/repos/JackalNode/{repo}/releases/latest"
 class UpdateCheckWorker(QThread):
     update_available = pyqtSignal(str, str)   # (latest_version, download_url)
     no_update        = pyqtSignal()
-    check_failed     = pyqtSignal()
+    check_failed     = pyqtSignal(str)         # reason: "error" | "no_asset"
 
     def __init__(self, current_version: str, repo: str):
         super().__init__()
@@ -40,8 +43,12 @@ class UpdateCheckWorker(QThread):
             latest       = tag.lstrip("v")
             download_url = self._find_installer_url(data.get("assets", []))
 
-            if not latest or not download_url:
-                self.check_failed.emit()
+            if not latest:
+                self.check_failed.emit("error")
+                return
+
+            if not download_url:
+                self.check_failed.emit("no_asset")
                 return
 
             if Version(latest) > Version(self.current_version):
@@ -50,13 +57,23 @@ class UpdateCheckWorker(QThread):
                 self.no_update.emit()
 
         except Exception:
-            self.check_failed.emit()
+            self.check_failed.emit("error")
 
     def _find_installer_url(self, assets: list) -> str:
-        for asset in assets:
-            name = asset.get("name", "").lower()
-            if name.endswith(".exe"):
-                return asset.get("browser_download_url", "")
+        if sys.platform == 'win32':
+            for asset in assets:
+                name = asset.get("name", "").lower()
+                if name.endswith(".exe"):
+                    return asset.get("browser_download_url", "")
+            return ""
+
+        if sys.platform == 'darwin':
+            for asset in assets:
+                name = asset.get("name", "").lower()
+                if name.endswith(".zip") and "macos" in name:
+                    return asset.get("browser_download_url", "")
+            return ""
+
         return ""
 
 
@@ -97,6 +114,29 @@ class DownloadWorker(QThread):
 
         except Exception:
             self.failed.emit()
+
+
+# ──────────────────────────────────────────────
+# Background thread: sends an update-issue report to Discord
+# ──────────────────────────────────────────────
+
+class UpdateReportWorker(QThread):
+    """
+    Sends an update-flow issue report off the UI thread - same rationale
+    as ReportSendWorker in add_game_dialog.py (send_update_report() does
+    a blocking network call with a 5-second timeout).
+    """
+    finished_sending = pyqtSignal(bool, str)
+
+    def __init__(self, webhook_url, issue_type, details=None, parent=None):
+        super().__init__(parent)
+        self.webhook_url = webhook_url
+        self.issue_type  = issue_type
+        self.details     = details
+
+    def run(self):
+        success, message = send_update_report(self.webhook_url, self.issue_type, self.details)
+        self.finished_sending.emit(success, message)
 
 
 # ──────────────────────────────────────────────
@@ -144,8 +184,10 @@ class UpdateDialog(QDialog):
 
         # What happens note
         note = QLabel(
-            "Clicking Update Now will download and run the installer. "
-            "The app will close so the update can complete."
+            "Clicking Update Now will download the latest version for your system. "
+            "On Windows, the installer launches automatically and the app closes "
+            "to complete the update. On other platforms, you'll be shown where "
+            "the download was saved."
         )
         note.setWordWrap(True)
         note.setFont(QFont("Segoe UI", 9))
@@ -241,7 +283,14 @@ class UpdateDialog(QDialog):
         self.status_label.setVisible(True)
         self.status_label.setText("Downloading update, please wait...")
 
-        filename = f"{self.app_name}_Setup_v{self.latest_version}.exe"
+        if sys.platform == 'win32':
+            ext = ".exe"
+        elif sys.platform == 'darwin':
+            ext = ".zip"
+        else:
+            ext = ""
+
+        filename = f"{self.app_name}_Setup_v{self.latest_version}{ext}"
         self._worker = DownloadWorker(self.download_url, filename)
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_download_done)
@@ -253,21 +302,49 @@ class UpdateDialog(QDialog):
         self.status_label.setText(f"Downloading... {pct}%")
 
     def _on_download_done(self, path: str):
-        self.status_label.setText("Download complete. Launching installer...")
-        try:
-            subprocess.Popen([path], shell=False)
-        except Exception:
-            self.status_label.setText(
-                "Download complete but installer could not launch. "
-                f"Find it at: {path}"
-            )
+        if sys.platform == 'win32':
+            self.status_label.setText("Download complete. Launching installer...")
+            try:
+                subprocess.Popen([path], shell=False)
+            except Exception:
+                self.status_label.setText(
+                    "Download complete but installer could not launch. "
+                    f"Find it at: {path}"
+                )
+                self.skip_btn.setEnabled(True)
+                self.skip_btn.setText("Close")
+                return
+
+            # Close the app so the installer can replace files cleanly
+            sys.exit(0)
+
+        else:
+            # Only darwin can reach here - _find_installer_url() never
+            # returns a URL for any other platform, so no update ever
+            # downloads for one.
+            self.status_label.setText("Download complete.")
             self.skip_btn.setEnabled(True)
             self.skip_btn.setText("Close")
-            return
+            self._show_manual_step_dialog(
+                f"The update downloaded successfully to:\n\n{path}\n\n"
+                "Open the .zip, then drag PingGuard.app into Applications "
+                "and relaunch it to finish updating.",
+                "macos_manual_update"
+            )
 
-        # Close the app so the installer can replace files cleanly
-        import sys
-        sys.exit(0)
+    def _show_manual_step_dialog(self, message: str, issue_type: str):
+        box = QMessageBox(self)
+        box.setWindowTitle(f"{self.app_name} — Update Downloaded")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(message)
+        report_btn = box.addButton("Report an Issue", QMessageBox.ButtonRole.ActionRole)
+        box.addButton("Close", QMessageBox.ButtonRole.AcceptRole)
+        box.exec()
+        if box.clickedButton() == report_btn:
+            self._report_worker = UpdateReportWorker(
+                DISCORD_REPORT_WEBHOOK, issue_type, message, self
+            )
+            self._report_worker.start()
 
     def _on_download_failed(self):
         self.status_label.setText(
@@ -301,8 +378,34 @@ def check_for_updates(app_name: str, current_version: str,
         dialog = UpdateDialog(app_name, current_version, latest, url, parent)
         dialog.exec()
 
+    def on_check_failed(reason: str):
+        if reason != "no_asset":
+            return   # "error" stays silent, unchanged from today
+
+        box = QMessageBox(parent)
+        box.setWindowTitle(f"{app_name} — Update")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(
+            "A newer version is available, but PingGuard couldn't find a "
+            "download built for this system. No update was downloaded."
+        )
+        report_btn = box.addButton("Report an Issue", QMessageBox.ButtonRole.ActionRole)
+        box.addButton("Close", QMessageBox.ButtonRole.AcceptRole)
+        box.exec()
+        if box.clickedButton() == report_btn:
+            report_worker = UpdateReportWorker(
+                DISCORD_REPORT_WEBHOOK, "no_platform_asset",
+                f"No release asset matched sys.platform={sys.platform}", parent
+            )
+            report_worker.start()
+            if parent:
+                if not hasattr(parent, "_update_workers"):
+                    parent._update_workers = []
+                parent._update_workers.append(report_worker)
+
     worker.update_available.connect(on_update_available)
-    # no_update and check_failed are intentionally silent
+    worker.check_failed.connect(on_check_failed)
+    # no_update stays silent; check_failed("error") stays silent inside on_check_failed
     worker.start()
 
     # Keep a reference so the thread isn't garbage collected

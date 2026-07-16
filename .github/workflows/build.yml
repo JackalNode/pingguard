@@ -59,3 +59,45 @@ jobs:
           generate_release_notes: false
           draft: false
           prerelease: false
+
+  build-macos:
+    needs: build
+    runs-on: macos-14   # Apple Silicon (arm64)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create constants.py from GitHub Secret
+        run: |
+          echo "DISCORD_REPORT_WEBHOOK = \"${{ secrets.DISCORD_REPORT_WEBHOOK }}\"" > constants.py
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          tag="${{ github.ref_name }}"
+          version="${tag#v}"
+          echo "VERSION=$version" >> "$GITHUB_OUTPUT"
+          echo "Version is: $version"
+
+      - name: Build with PyInstaller
+        run: python -m PyInstaller pingguard.spec
+
+      - name: Zip .app bundle
+        run: ditto -c -k --sequesterRsrc --keepParent "dist/PingGuard.app" "PingGuard_v${{ steps.get_version.outputs.VERSION }}_macOS.zip"
+
+      - name: Attach macOS build to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PingGuard_v${{ steps.get_version.outputs.VERSION }}_macOS.zip
+          generate_release_notes: false
+          draft: false
+          prerelease: false

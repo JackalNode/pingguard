@@ -16,8 +16,9 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 
 ## Current State
 
-- **Version:** v2.2.0 shipped and live (GitHub + itch.io). v2.3.0 not yet started — see roadmap.
+- **Version:** v2.2.1 shipped and live on GitHub (Windows onedir migration — fixes a real auto-update crash). itch.io still serving v2.2.0 — general release deliberately held back until post-fix confirmation was in hand (now received). v2.3.0 not yet started — see roadmap.
 - **Platform:** Windows only in production (macOS/Linux Beta existed in v2.0.4 but pipeline is Windows-only now). A manual macOS test-build workflow was added Session 20 — see dedicated section below; still experimental, not part of the shipping pipeline.
+- **Windows build format:** onedir as of v2.2.1 (was onefile through v2.2.0) — see dedicated section below.
 - **Live on:** `jackalnode.itch.io/pingguard` and `github.com/JackalNode/pingguard`
 - **CI/CD:** GitHub Actions — tag push → cloud build → installer attached to release automatically.
 - **Auto-update:** wired via `updater.py`.
@@ -30,9 +31,11 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 
 ## Project Paths
 
-- **Project root:** `C:\Users\natha\Desktop\Project\PingGuard v3\PingGuard`
+- **Project root:** `E:\Projects\PingGuard v3\PingGuard` (confirmed Session 21 — the project lives on a separate physical drive from the OS, which is why it survived the Session 20 machine reinstall intact).
+- **Local Python:** `C:\Python314\python.exe` (confirmed Session 21). The `python`/`python3` commands on PATH resolve to the Microsoft Store alias stub, not a real interpreter, and will error — always use the `py` launcher or this direct path.
+- **Local Inno Setup:** `C:\Users\natha\AppData\Local\Programs\Inno Setup 6\ISCC.exe` (v6.7.3, per-user install, confirmed Session 21). Differs from GitHub Actions' cloud runner path (`C:\Program Files (x86)\Inno Setup 6\ISCC.exe`, hardcoded in `build.yml`) — both correct for their own environment, not a conflict.
 - **All source files** sit flat in the project root — no `core/` or `src/` subfolder.
-- **PyInstaller output:** `dist\PingGuard.exe`
+- **PyInstaller output (platform-dependent since Session 21's onedir migration):** Windows → `dist\PingGuard\` folder (`PingGuard.exe` + `_internal\`), no longer a single `dist\PingGuard.exe` file. macOS → `dist\PingGuard.app` (via the darwin `BUNDLE()` step, unchanged).
 - **Inno Setup output:** `installer_output\` (SourcePath-relative in the `.iss` file)
 - **User data (`games.json`):** `C:\Users\natha\AppData\Roaming\PingGuard\games.json` — outside the git repo, never tracked.
 - **`trace_connections.py`** sits flat in the root alongside everything else but is a standalone research tool — not imported by, or part of, the shipped app.
@@ -246,6 +249,44 @@ Existing endpoints (`euw1.pvp.net:443`, `eu.api.riotgames.com:443`) are account/
 
 ---
 
+## Windows Onedir Migration — Auto-Update Crash Fixed (Session 21)
+
+**The bug:** a real user (Jason/CautionHeavy) hit `Failed to load Python DLL ... python311.dll ... module could not be found` immediately after auto-update fetched a new version and prompted to launch (originally reported Session 20).
+
+**Root cause, confirmed via a full diagnostic pull from the affected user** (Windows Security/Defender status, Controlled Folder Access log, orphaned `_MEI` temp-extraction folders): zero Defender detections or CFA blocks against PingGuard — ruling out AV *blocking*. Actual cause is a timing/lock race during onefile's temp-folder extraction on every launch (real-time AV scanning holding a lock on `python311.dll` at the exact moment the bootloader tries to load it), not a targeted quarantine. Same underlying onefile fragility already confirmed on macOS (Session 20), different OS-specific trigger.
+
+**The fix:** migrated the Windows build from onefile to onedir, mirroring the existing darwin `COLLECT()` pattern:
+1. `pingguard.spec` — new `elif sys.platform == 'win32':` branch added. `exclude_binaries` and the `a.binaries`/`a.datas` exclusion widened from darwin-only to `('darwin', 'win32')`. Darwin block itself untouched.
+2. `PingGuard.iss` — `[Files]` section's Windows source changed from a single named file to a recursive wildcard (`dist\PingGuard\*`, `recursesubdirs createallsubdirs`) to package the full onedir folder output. `MyAppVersion` bumped 2.2.0 → 2.2.1.
+3. `main.py` — version bumped to 2.2.1.
+4. **`.github/workflows/build.yml` and `updater.py` required zero changes** — confirmed via full literal review. The workflow only orchestrates PyInstaller/Inno Setup generically (already onedir-agnostic); `updater.py` only ever hands off to the Inno Setup installer via `subprocess.Popen`, never touches individual files itself.
+
+**Verified before shipping:** local PyInstaller build (real onedir structure), local Inno Setup compile, fresh-install test (clean launch, correct `%APPDATA%` layout, real ping cycles), and a real upgrade-path test — installed the actual v2.2.0 onefile GitHub Release asset as a baseline, added a deliberate marker entry (`ZZZ_UPGRADE_TEST_MARKER`) to `games.json`, then upgraded to the new onedir installer. Marker survived byte-for-byte, confirming real user data isn't lost on upgrade.
+
+**Shipped as v2.2.1**, tagged and built cleanly via GitHub Actions. Held back from itch.io and sent directly to Jason first — **confirmed fixed on his actual affected machine.** itch.io upload still pending as of end of Session 21.
+
+**Side findings, not yet acted on:**
+- A retired pre-2.0 PingGuard uninstaller (v1.5, predates this repo's git history) deletes `%APPDATA%\PingGuard` outright on uninstall. Since that folder is shared across all versions via Qt's org/app name resolution, any user with an old pre-2.0 install alongside a current one risks the old uninstaller wiping current save data. Not fixed — flagged for whenever legacy-install cleanup gets attention.
+- League of Legends live-match ping verification data (real in-match cross-checks from an earlier session) is presumed lost — no longer reproducible from current chat/session history. Flag as needing re-verification whenever LoL endpoint work is revisited; not currently treated as still-confirmed.
+
+---
+
+## macOS Auto-Update — Broken By Design (Session 21, unresolved, needs dedicated session)
+
+**The bug:** the Mac tester running the Session 20 Stage A build received a "v2.2.1 available" update prompt and hit "Download complete but installer could not launch."
+
+**Root cause:** `updater.py`'s `_find_installer_url()` has no platform awareness — it grabs the first Release asset ending in `.exe`, with no logic matching asset type to OS. This worked by accident while only Windows assets existed.
+
+**Two things need to happen together before Mac users can safely receive auto-updates:**
+1. The release pipeline needs to actually attach a macOS asset to GitHub Releases — currently the Mac build only exists as a manual `workflow_dispatch` artifact (`build-macos-test.yml`), never a Release asset.
+2. `updater.py` needs real per-platform asset selection (`sys.platform` check → matching file extension/pattern per OS) instead of "first `.exe` found."
+
+**Confirmed via Console log analysis:** the tester's existing Stage A install itself is unaffected and running normally — this is purely an update-delivery gap, not a crash in the app.
+
+**Deliberately not fixed this session** — flagged for a dedicated, fresh session rather than a rushed tail-end patch.
+
+---
+
 ## Security Incident — Resolved (Session 20)
 
 Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or StartGuard. Full audit of both GitHub repos (commit history, workflow files, `requirements.txt`, `updater.py`, `reporter.py`) found no tampering. Fresh VirusTotal scans of both apps' actual release installers came back clean apart from well-documented single-vendor heuristic false positives (`Wacatac.B!ml` on PingGuard, a generic low-signal flag on StartGuard) — the same known PyInstaller false-positive pattern already documented in this project. No user-facing action was needed. The local dev machine was reinstalled; the project folder survived intact on a separate drive; the toolchain (git, Claude Code) was reinstalled and reconfigured.
@@ -256,7 +297,7 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 
 | File | Notes |
 |------|-------|
-| `main.py` | Version string `2.2.0`. AppUserModelID set before QApplication. |
+| `main.py` | Version string `2.2.1` (bumped Session 21). AppUserModelID set before QApplication. |
 | `app.py` | Never reads `game["exe"]` directly — only consumes `ping_worker.get_running_games()`. |
 | `main_window.py` | `_on_add_game()` checks `add_game()` return value; shows warning on duplicate. Never reads `game["exe"]` directly. `_populate_games()` filters on `enabled` boolean only — no category or search filtering. |
 | `settings.py` | `GameManager`. `add_game()` enforces unique names (case-insensitive), returns True/False. `migrate_game_endpoints()` restructured: each entry in `fixes` carries its own `is_stale` lambda and `region_note` — CS2, Dota 2, Call of Duty: Warzone, Apex Legends, Path of Exile, Valorant, and League of Legends all present. Apply loop optionally writes `exe` when the fix dict carries an `'exe'` key (Session 18); optionally updates `region_note` when the fix dict carries a `region_note_stale` lambda that matches the current value (Session 19) — both guarded, existing entries without those keys are unaffected. `migrate_game_regions()` unchanged. `update_game()` exists but has no UI caller. |
@@ -270,8 +311,9 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 | `logger.py` | CSV session logging, 30-day auto-cleanup. Discovered Session 15, not modified. |
 | `trace_connections.py` | Standalone diagnostic script — not part of the shipped app. Uses `psutil` to list a named running process's active connections. Built for Warzone endpoint verification; reusable for any game audit going forward. |
 | `constants.py` | Discord webhook (gitignored). |
-| `updater.py` | Auto-update shared logic. |
-| `pingguard.spec` | darwin-only `BUNDLE()` added; darwin build mode switched onefile → onedir (Session 20). Windows build unchanged (still onefile). |
+| `updater.py` | Auto-update shared logic. Confirmed via literal review to need zero changes for the Windows onedir migration (Session 21) — only ever hands off to the installer via `subprocess.Popen`. **Known bug (Session 21):** `_find_installer_url()` has no platform-aware asset selection — grabs the first Release asset ending in `.exe` regardless of OS, which breaks macOS auto-update. Needs a dedicated fix session. |
+| `pingguard.spec` | darwin-only `BUNDLE()` added; darwin build mode switched onefile → onedir (Session 20). **Windows now also onedir (Session 21):** new `elif sys.platform == 'win32':` branch mirrors the darwin `COLLECT()` pattern; `exclude_binaries` and the binaries/datas exclusion widened from darwin-only to `('darwin', 'win32')`. |
+| `PingGuard.iss` | **Updated Session 21:** `[Files]` section's Windows source changed from a single named file to a recursive wildcard (`dist\PingGuard\*`, `recursesubdirs createallsubdirs`) to package the full onedir output. `MyAppVersion` bumped 2.2.0 → 2.2.1. |
 | `.github/workflows/build-macos-test.yml` | New (Session 20). Manual `workflow_dispatch` only, macos-14 runner, builds + zips `.app` via `ditto`, uploads as a workflow artifact — not part of the tag-triggered release pipeline. |
 
 ---
@@ -302,6 +344,7 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 | v2.0.5 / v2.0.6 | ✅ Shipped | Bug fixes, infrastructure parity |
 | v2.1.0 | ✅ Shipped | Icon, light/dark theme, Settings cleanup |
 | v2.2.0 | ✅ Shipped | Per-game region management, full 21-game endpoint audit, exe staleness check |
+| v2.2.1 | ✅ Shipped (GitHub only — itch.io pending) | Windows onedir migration, fixes onefile self-extraction auto-update crash |
 | v2.3.0 | Tentative | Game search / server auto-fill — psutil approach is the leading candidate; only proceeds if a workable implementation is confirmed |
 | v3.0.0 | Future | Network diagnostics: traceroute, hop latency, ISP ID, packet loss. Real-time per-match server detection is a confirmed motivation (dynamic datacenter assignment observed on both Warzone and Apex). Elevation approach (scapy vs. raw sockets) not yet decided. |
 
@@ -309,7 +352,10 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 
 ## Open Questions
 
-- **Windows auto-update crash — real user report (Session 20, post-v2.2.0):** a user hit `Failed to load Python DLL ... _MEIxxxxx\python311.dll ... module could not be found` immediately after auto-update fetched a new version and prompted to launch. Classic PyInstaller onefile self-extraction failure — most likely antivirus interference deleting/quarantining a file during the onefile bootloader's temp-folder extraction on launch. Connects directly to the macOS onefile-vs-security warning found this same session (why the macOS build moved to onedir). Not yet root-caused on Windows — next step is checking the affected user's Windows Security > Protection History around the crash timestamp to confirm or rule out AV interference. Real candidate for switching the Windows build to onedir too, not just a one-off fluke — same underlying weak spot, different trigger (AV vs Gatekeeper).
+- **✅ FIXED (Session 21) — Windows auto-update crash.** Root-caused (AV lock-race during onefile temp-folder extraction, not AV blocking) and fixed by migrating the Windows build to onedir. Shipped as v2.2.1, confirmed fixed on the affected user's real machine. See dedicated section above.
+- **macOS auto-update is broken by design (Session 21, unresolved) — needs a dedicated session.** `updater.py` has no platform-aware asset selection and there's no macOS Release asset to update to. See dedicated section above.
+- **Legacy pre-2.0 uninstaller data-loss risk (surfaced Session 21, not fixed):** a retired v1.5 uninstaller deletes the shared `%APPDATA%\PingGuard` folder outright, which could wipe a current install's data if an old install is still lingering on a user's machine.
+- **LoL live-match ping verification data presumed lost (Session 21)** — earlier in-match cross-check numbers are no longer reproducible from session history; needs re-verification whenever LoL endpoint work is revisited.
 - **Whether `eu.battle.net` is measuring the right thing for Warzone** — it's the Blizzard login layer, not Demonware's game backend. May only reflect login-service latency, not real match-server latency.
 - **GCP address on port 1119** (`35.204.122.188`) seen during Warzone trace — same port as WoW's real game-data endpoint in `games.py`. Not investigated.
 - **Real-time per-match server detection** — confirmed on both Warzone (Demonware) and Apex (AWS multi-region) that a single hardcoded endpoint can't represent "the server you'd actually play in" for titles with dynamic datacenter assignment. `trace_connections.py` proves the psutil approach works; turning it into a live in-app feature is the real fix. v3 scope.
