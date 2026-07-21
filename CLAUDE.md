@@ -16,8 +16,8 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 
 ## Current State
 
-- **Version:** v2.2.1 shipped and live on GitHub (Windows onedir migration — fixes a real auto-update crash). itch.io still serving v2.2.0 — general release deliberately held back until post-fix confirmation was in hand (now received). v2.3.0 not yet started — see roadmap.
-- **Platform:** Windows only in production (macOS/Linux Beta existed in v2.0.4 but pipeline is Windows-only now). A manual macOS test-build workflow was added Session 20 — see dedicated section below; still experimental, not part of the shipping pipeline.
+- **Version:** v2.2.2 shipped (macOS auto-update fix, verified end-to-end on real hardware). itch.io still serving v2.2.0 — general release pending. v2.3.0 not yet started — see roadmap.
+- **Platform:** Windows and macOS both in production as of Session 22 — `build.yml` has a tag-triggered `build-macos` job (`needs: build`) that attaches a real macOS Release asset alongside the Windows installer. macOS Stage A packaging (Session 20) and full auto-update runtime (Session 22) are both confirmed on real hardware by a real tester. Linux has no test build of any kind yet.
 - **Windows build format:** onedir as of v2.2.1 (was onefile through v2.2.0) — see dedicated section below.
 - **Live on:** `jackalnode.itch.io/pingguard` and `github.com/JackalNode/pingguard`
 - **CI/CD:** GitHub Actions — tag push → cloud build → installer attached to release automatically.
@@ -271,19 +271,18 @@ Existing endpoints (`euw1.pvp.net:443`, `eu.api.riotgames.com:443`) are account/
 
 ---
 
-## macOS Auto-Update — Broken By Design (Session 21, unresolved, needs dedicated session)
+## macOS Auto-Update — Fixed End-to-End (Session 22)
 
-**The bug:** the Mac tester running the Session 20 Stage A build received a "v2.2.1 available" update prompt and hit "Download complete but installer could not launch."
+**The bug (Session 21):** the Mac tester running the Session 20 Stage A build received a "v2.2.1 available" update prompt and hit "Download complete but installer could not launch." Root cause was two-part: `build.yml` never attached a macOS asset to real Releases, and `updater.py`'s `_find_installer_url()` had no platform awareness — it grabbed the first Release asset ending in `.exe` regardless of OS.
 
-**Root cause:** `updater.py`'s `_find_installer_url()` has no platform awareness — it grabs the first Release asset ending in `.exe`, with no logic matching asset type to OS. This worked by accident while only Windows assets existed.
+**The fix, applied Session 22:**
+1. **`build.yml`:** new `build-macos` job, `runs-on: macos-14`, sequenced via `needs: build` (no race condition with the Windows job). Builds via PyInstaller, zips the `.app` with `ditto`, and attaches `PingGuard_v{version}_macOS.zip` to the same tagged Release via `softprops/action-gh-release@v2`. Fires on the same tag trigger as the Windows job (`v[0-9]*.[0-9]*.[0-9]*`) — one `on:` block covers both jobs.
+2. **`updater.py`:** rewritten to be platform-explicit throughout — `_find_installer_url()` branches on `sys.platform` (`win32` → first `.exe` asset, `darwin` → first `.zip` asset containing `"macos"`, anything else → empty string, i.e. fails closed). `_start_download()` derives the file extension per platform. `_on_download_done()` is a clean win32/darwin two-way branch — Windows launches the installer via `subprocess.Popen` and exits; macOS shows a manual "drag to Applications" dialog instead (no silent launch attempt). `check_failed` signal now carries a reason string (`"error"` | `"no_asset"`) instead of firing blind.
+3. **`reporter.py`:** new `send_update_report()`, mirroring `send_game_request()`'s pattern — powers a "Report an Issue" button surfaced from both the macOS manual-update dialog and the "no matching asset" failure dialog.
 
-**Two things need to happen together before Mac users can safely receive auto-updates:**
-1. The release pipeline needs to actually attach a macOS asset to GitHub Releases — currently the Mac build only exists as a manual `workflow_dispatch` artifact (`build-macos-test.yml`), never a Release asset.
-2. `updater.py` needs real per-platform asset selection (`sys.platform` check → matching file extension/pattern per OS) instead of "first `.exe` found."
+**Verified:** a dedicated v2.2.2 pipeline-test release — both `build` and `build-macos` jobs green, both assets confirmed present on the Release — and confirmed working end-to-end by a real Mac tester after a one-time manual bootstrap onto the new build.
 
-**Confirmed via Console log analysis:** the tester's existing Stage A install itself is unaffected and running normally — this is purely an update-delivery gap, not a crash in the app.
-
-**Deliberately not fixed this session** — flagged for a dedicated, fresh session rather than a rushed tail-end patch.
+**Deferred, not part of this fix:** in-app licence link (StartGuard already has the pattern), and displaying current version + update-available indicator in Settings.
 
 ---
 
@@ -297,7 +296,7 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 
 | File | Notes |
 |------|-------|
-| `main.py` | Version string `2.2.1` (bumped Session 21). AppUserModelID set before QApplication. |
+| `main.py` | Version string `2.2.2` (bumped Session 22). AppUserModelID set before QApplication. |
 | `app.py` | Never reads `game["exe"]` directly — only consumes `ping_worker.get_running_games()`. |
 | `main_window.py` | `_on_add_game()` checks `add_game()` return value; shows warning on duplicate. Never reads `game["exe"]` directly. `_populate_games()` filters on `enabled` boolean only — no category or search filtering. |
 | `settings.py` | `GameManager`. `add_game()` enforces unique names (case-insensitive), returns True/False. `migrate_game_endpoints()` restructured: each entry in `fixes` carries its own `is_stale` lambda and `region_note` — CS2, Dota 2, Call of Duty: Warzone, Apex Legends, Path of Exile, Valorant, and League of Legends all present. Apply loop optionally writes `exe` when the fix dict carries an `'exe'` key (Session 18); optionally updates `region_note` when the fix dict carries a `region_note_stale` lambda that matches the current value (Session 19) — both guarded, existing entries without those keys are unaffected. `migrate_game_regions()` unchanged. `update_game()` exists but has no UI caller. |
@@ -305,16 +304,17 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 | `ping_engine.py` | `get_process_names_for_game()` + `_as_list()` helper. `check_running_games()` matches alias-set overlap. `tcp_ping()` reused directly to verify Warzone, Apex, and PoE endpoints. `ping_game()` is first-success-wins — walks endpoints in order, returns on first success. |
 | `game_detector.py` | Scans Steam/Epic/Riot/Battle.net for installed games. All detectors independently try/except. `winreg` import guarded behind a platform check placed before any unguarded reference (Session 20, macOS build support). |
 | `add_game_dialog.py` | Detected-games dropdown, Browse button, game-request report hook. Dialog height 420×555. Server Address field has label, tooltip, and hint. All confirmed working via live testing. |
-| `reporter.py` | `send_report()` + `send_game_request()`. Webhook from `constants.py`. |
+| `reporter.py` | `send_report()` + `send_game_request()` + `send_update_report()` (Session 22, line 121) — mirrors `send_game_request()`'s pattern, no game dependency, powers the "Report an Issue" button in the update-flow dialogs. Webhook from `constants.py`. |
 | `setup_wizard.py` | First-run wizard. Region step before games step. AWS endpoints for latency probing. Does not call `add_game()`. |
 | `theme.py` | Dark/light token dicts. Stable since Session 14. |
 | `logger.py` | CSV session logging, 30-day auto-cleanup. Discovered Session 15, not modified. |
 | `trace_connections.py` | Standalone diagnostic script — not part of the shipped app. Uses `psutil` to list a named running process's active connections. Built for Warzone endpoint verification; reusable for any game audit going forward. |
 | `constants.py` | Discord webhook (gitignored). |
-| `updater.py` | Auto-update shared logic. Confirmed via literal review to need zero changes for the Windows onedir migration (Session 21) — only ever hands off to the installer via `subprocess.Popen`. **Known bug (Session 21):** `_find_installer_url()` has no platform-aware asset selection — grabs the first Release asset ending in `.exe` regardless of OS, which breaks macOS auto-update. Needs a dedicated fix session. |
+| `updater.py` | Auto-update shared logic. Needed zero changes for the Windows onedir migration (Session 21). **Rewritten platform-explicit (Session 22):** `_find_installer_url()` branches on `sys.platform` (win32/darwin/fails-closed empty string); `_start_download()` derives extension per platform; `_on_download_done()` is a clean win32/darwin two-way branch; `check_failed` signal now carries a reason (`"error"`/`"no_asset"`). |
 | `pingguard.spec` | darwin-only `BUNDLE()` added; darwin build mode switched onefile → onedir (Session 20). **Windows now also onedir (Session 21):** new `elif sys.platform == 'win32':` branch mirrors the darwin `COLLECT()` pattern; `exclude_binaries` and the binaries/datas exclusion widened from darwin-only to `('darwin', 'win32')`. |
 | `PingGuard.iss` | **Updated Session 21:** `[Files]` section's Windows source changed from a single named file to a recursive wildcard (`dist\PingGuard\*`, `recursesubdirs createallsubdirs`) to package the full onedir output. `MyAppVersion` bumped 2.2.0 → 2.2.1. |
-| `.github/workflows/build-macos-test.yml` | New (Session 20). Manual `workflow_dispatch` only, macos-14 runner, builds + zips `.app` via `ditto`, uploads as a workflow artifact — not part of the tag-triggered release pipeline. |
+| `.github/workflows/build-macos-test.yml` | New (Session 20). Manual `workflow_dispatch` only, macos-14 runner, builds + zips `.app` via `ditto`, uploads as a workflow artifact — not part of the tag-triggered release pipeline. Superseded for real releases by `build.yml`'s `build-macos` job (Session 22), but left in place as a standalone manual test workflow. |
+| `.github/workflows/build.yml` | **Updated Session 22:** new `build-macos` job (`runs-on: macos-14`, `needs: build`) added alongside the existing Windows `build` job. Same single tag trigger (`v[0-9]*.[0-9]*.[0-9]*`) covers both. Zips the `.app` via `ditto` and attaches `PingGuard_v{version}_macOS.zip` to the Release via `softprops/action-gh-release@v2`. |
 
 ---
 
@@ -345,6 +345,7 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 | v2.1.0 | ✅ Shipped | Icon, light/dark theme, Settings cleanup |
 | v2.2.0 | ✅ Shipped | Per-game region management, full 21-game endpoint audit, exe staleness check |
 | v2.2.1 | ✅ Shipped (GitHub only — itch.io pending) | Windows onedir migration, fixes onefile self-extraction auto-update crash |
+| v2.2.2 | ✅ Shipped (GitHub only — itch.io pending) | macOS auto-update fixed end-to-end — tag-triggered `build-macos` job + platform-explicit `updater.py` rewrite, verified on real hardware |
 | v2.3.0 | Tentative | Game search / server auto-fill — psutil approach is the leading candidate; only proceeds if a workable implementation is confirmed |
 | v3.0.0 | Future | Network diagnostics: traceroute, hop latency, ISP ID, packet loss. Real-time per-match server detection is a confirmed motivation (dynamic datacenter assignment observed on both Warzone and Apex). Elevation approach (scapy vs. raw sockets) not yet decided. |
 
@@ -353,7 +354,7 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 ## Open Questions
 
 - **✅ FIXED (Session 21) — Windows auto-update crash.** Root-caused (AV lock-race during onefile temp-folder extraction, not AV blocking) and fixed by migrating the Windows build to onedir. Shipped as v2.2.1, confirmed fixed on the affected user's real machine. See dedicated section above.
-- **macOS auto-update is broken by design (Session 21, unresolved) — needs a dedicated session.** `updater.py` has no platform-aware asset selection and there's no macOS Release asset to update to. See dedicated section above.
+- **✅ FIXED (Session 22) — macOS auto-update.** `build.yml`'s new `build-macos` job now attaches a real Release asset; `updater.py` rewritten platform-explicit, fails closed for unrecognized platforms. Shipped as v2.2.2, verified via a real pipeline-test release and confirmed end-to-end by a real Mac tester. See dedicated section above. Deferred: in-app licence link, version display in Settings.
 - **Legacy pre-2.0 uninstaller data-loss risk (surfaced Session 21, not fixed):** a retired v1.5 uninstaller deletes the shared `%APPDATA%\PingGuard` folder outright, which could wipe a current install's data if an old install is still lingering on a user's machine.
 - **LoL live-match ping verification data presumed lost (Session 21)** — earlier in-match cross-check numbers are no longer reproducible from session history; needs re-verification whenever LoL endpoint work is revisited.
 - **Whether `eu.battle.net` is measuring the right thing for Warzone** — it's the Blizzard login layer, not Demonware's game backend. May only reflect login-service latency, not real match-server latency.
@@ -368,7 +369,7 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 - **All 21 `DEFAULT_GAMES` entries are currently enabled** in the dev's `games.json` (changed Session 18 for testing, dev intends to leave as-is) — PingGuard is now monitoring all 21 endpoints every cycle. Worth keeping in mind if performance or Discord-report noise comes up.
 - **Edit/remove game UI:** `update_game()` has no caller. Confirm `remove_game()` has a visible button wired to it before assuming removal works end to end.
 - **psutil live-connection detection:** viable in principle (proven by `trace_connections.py`), but needs filtering logic before it can be a UI feature.
-- **macOS / Linux:** pipeline is Windows-only; needs dedicated session when ready.
+- **macOS / Linux:** pipeline builds both Windows and macOS as of Session 22 (`build-macos` job in `build.yml`, tag-triggered, real Release asset). Linux has no test build of any kind yet — genuinely still to do.
 - **v2.3.0 data source:** psutil approach is the candidate to investigate first.
 - **v3.0.0 elevation:** scapy vs. manual raw sockets — not decided.
 - **Tray icon:** still shows generic blue circle instead of shield art. Dev's call to leave as low priority.
