@@ -6,11 +6,13 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QCheckBox, QSpinBox, QFormLayout, QComboBox, QTextEdit
+    QPushButton, QCheckBox, QSpinBox, QFormLayout, QComboBox, QTextEdit,
+    QApplication
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from theme import get_theme
+from updater import UpdateCheckWorker
 
 
 def _license_path() -> Path:
@@ -121,6 +123,16 @@ class SettingsDialog(QDialog):
         title.setStyleSheet(f"color: {t['text_bright']};")
         layout.addWidget(title)
 
+        # --- Version display + update check ---
+        version_str = QApplication.instance().applicationVersion()
+        self.version_label = QLabel(f"PingGuard v{version_str}")
+        self.version_label.setStyleSheet(f"color: {t['text_muted']}; font-size: 10px;")
+        layout.addWidget(self.version_label)
+
+        self._update_worker = UpdateCheckWorker(version_str, "pingguard")
+        self._update_worker.update_available.connect(self._on_update_available)
+        self._update_worker.start()
+
         form = QFormLayout()
         form.setSpacing(12)
         form.setContentsMargins(0, 4, 0, 4)
@@ -214,3 +226,9 @@ class SettingsDialog(QDialog):
         self.settings.set("start_minimized", self.minimized_check.isChecked())
         self.settings.set("start_with_windows", self.startup_check.isChecked())
         self.accept()
+
+    def _on_update_available(self, latest_version, download_url):
+        self.version_label.setText(
+            f"PingGuard v{QApplication.instance().applicationVersion()}  •  "
+            f"🔄 Update available (v{latest_version})"
+        )
