@@ -8,6 +8,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('assets/icon.ico', 'assets'),   # bundle icon so get_app_icon() finds it at runtime
+        ('LICENSE.txt', '.'),
     ],
     hiddenimports=[
         'updater',

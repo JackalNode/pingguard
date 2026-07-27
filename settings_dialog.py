@@ -1,13 +1,71 @@
 """
 settings_dialog.py - Settings window
 """
+import sys
+from pathlib import Path
+
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QCheckBox, QSpinBox, QFormLayout, QComboBox
+    QPushButton, QCheckBox, QSpinBox, QFormLayout, QComboBox, QTextEdit
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from theme import get_theme
+
+
+def _license_path() -> Path:
+    if getattr(sys, "frozen", False):
+        base = Path(sys._MEIPASS)
+    else:
+        base = Path(__file__).parent
+    return base / "LICENSE.txt"
+
+
+def _load_license_text() -> str:
+    try:
+        with open(_license_path(), "r", encoding="utf-8") as f:
+            return f.read()
+    except OSError as e:
+        return f"LICENSE.txt could not be loaded ({e})."
+
+
+class LicenseDialog(QDialog):
+    def __init__(self, theme, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("License")
+        self.setModal(True)
+        self.setFixedSize(440, 360)
+        self.setStyleSheet(f"QDialog {{ background: {theme['bg']}; }}")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        view = QTextEdit()
+        view.setReadOnly(True)
+        view.setPlainText(_load_license_text())
+        view.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        view.setFont(QFont("Consolas", 8))
+        view.setStyleSheet(f"""
+            QTextEdit {{
+                background: {theme['bg']};
+                color: {theme['text_bright']};
+                border: 1px solid {theme['border_alt']};
+                border-radius: 6px;
+                padding: 8px;
+            }}
+        """)
+        layout.addWidget(view)
+
+        close_btn = QPushButton("Close")
+        close_btn.setFixedHeight(34)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{ background: {theme['accent']}; color: white; border: none;
+                          border-radius: 6px; padding: 2px 16px; font-weight: bold; }}
+            QPushButton:hover {{ background: {theme['accent_hover']}; }}
+        """)
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn)
 
 
 class SettingsDialog(QDialog):
@@ -111,6 +169,16 @@ class SettingsDialog(QDialog):
         layout.addWidget(self.startup_check)
 
         layout.addSpacing(4)
+
+        license_btn = QPushButton("View License")
+        license_btn.setFixedHeight(30)
+        license_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {t['text_muted']}; border: 1px solid {t['border']};
+                          border-radius: 6px; padding: 2px 16px; font-size: 11px; }}
+            QPushButton:hover {{ background: {t['surface_hover']}; color: {t['text']}; }}
+        """)
+        license_btn.clicked.connect(lambda: LicenseDialog(self.theme, self).exec())
+        layout.addWidget(license_btn)
 
         # Save / Cancel
         btn_row = QHBoxLayout()
