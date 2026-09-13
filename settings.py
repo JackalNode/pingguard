@@ -292,8 +292,20 @@ class GameManager:
 
     def add_game(self, game_dict):
         name = game_dict.get("name", "")
-        if any(g["name"].lower() == name.lower() for g in self._games):
-            return False
+        for existing in self._games:
+            if existing["name"].lower() != name.lower():
+                continue
+            if existing.get("enabled", True):
+                return False  # genuinely already active - real duplicate
+            # Previously disabled (e.g. unchecked in the first-run wizard).
+            # Re-enable the existing entry rather than rejecting the add -
+            # it already has correct endpoint/exe data from DEFAULT_GAMES,
+            # which disabled entries always do since nothing else in the
+            # app can disable a game. Whatever was typed into the Add Game
+            # form is discarded in favor of that known-good data.
+            existing["enabled"] = True
+            self.save()
+            return True
         game_dict["enabled"] = True
         game_dict["last_ping"] = None
         game_dict["last_checked"] = None
