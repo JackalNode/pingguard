@@ -440,7 +440,17 @@ class MainWindow(QMainWindow):
 
         # Header
         header = QHBoxLayout()
-        title = QLabel("🎮 PingGuard")
+        header.setSpacing(8)
+
+        logo_label = QLabel()
+        logo_pixmap = QPixmap(resource_path("assets/icon_header.png"))
+        if not logo_pixmap.isNull():
+            logo_label.setPixmap(
+                logo_pixmap.scaledToHeight(42, Qt.TransformationMode.SmoothTransformation)
+            )
+        header.addWidget(logo_label)
+
+        title = QLabel("PingGuard")
         title.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {t['text_bright']};")
         header.addWidget(title)
