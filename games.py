@@ -140,10 +140,9 @@ DEFAULT_GAMES = [
         "icon": "🌙",
         "category": "MMO",
         "endpoints": [
-            {"host": "frontier.ffxiv.com", "port": 443},
-            {"host": "patch-bootver.ffxiv.com", "port": 443},
+            {"host": "neolobby06.ffxiv.com", "port": 54994},
         ],
-        "region_note": "EU Chaos DC"
+        "region_note": "Square Enix EU (Chaos DC, Frankfurt)"
     },
     {
         "name": "Path of Exile",

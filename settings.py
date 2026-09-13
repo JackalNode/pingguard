@@ -146,6 +146,18 @@ def migrate_game_endpoints(games_list):
             'region_note': 'EA servers',
             'is_stale': lambda hosts: 'api2.ea.com' in hosts,
         },
+        'Final Fantasy XIV': {
+            'endpoints': [
+                {'host': 'neolobby06.ffxiv.com', 'port': 54994},
+            ],
+            'region_note': 'Square Enix EU (Chaos DC, Frankfurt)',
+            # frontier.ffxiv.com is a global (Japan-hosted) launcher status
+            # API used identically by every region, not a regional gateway -
+            # confirmed via WHOIS (neolobby06 resolves to a Square Enix-
+            # attributed Frankfurt address) and a live TCP check against
+            # FFXIV's real documented game port (54994), which succeeded.
+            'is_stale': lambda hosts: 'frontier.ffxiv.com' in hosts or 'patch-bootver.ffxiv.com' in hosts,
+        },
     }
     changed = False
     for game in games_list:
