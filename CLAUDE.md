@@ -16,7 +16,7 @@ Network/ping monitor for gamers. Checks ping before you get stuck in a high-late
 
 ## Current State
 
-- **Version:** v2.2.2 shipped (macOS auto-update fix, verified end-to-end on real hardware). itch.io still serving v2.2.0 — general release pending. v2.3.0 not yet started — see roadmap.
+- **Version:** v2.2.3 shipped and live on both GitHub and itch.io — itch.io was manually updated to current this session, the first time it's matched GitHub since v2.2.0. v2.3.0 not yet started — see roadmap.
 - **Platform:** Windows and macOS both in production as of Session 22 — `build.yml` has a tag-triggered `build-macos` job (`needs: build`) that attaches a real macOS Release asset alongside the Windows installer. macOS Stage A packaging (Session 20) and full auto-update runtime (Session 22) are both confirmed on real hardware by a real tester. Linux has no test build of any kind yet.
 - **Windows build format:** onedir as of v2.2.1 (was onefile through v2.2.0) — see dedicated section below.
 - **Live on:** `jackalnode.itch.io/pingguard` and `github.com/JackalNode/pingguard`
@@ -286,6 +286,21 @@ Existing endpoints (`euw1.pvp.net:443`, `eu.api.riotgames.com:443`) are account/
 
 ---
 
+## License Viewer + Version Display (Session 23)
+
+**Two independent Settings-dialog features, both deferred from Session 22.**
+
+1. **In-app license viewer:** `LICENSE.txt` created at the project root (new file, UTF-8, title "JackalNode Licence" per the shared one-canonical-text convention — not "PingGuard Licence"; £ symbol in Section 3 byte-verified as valid UTF-8). `settings_dialog.py` gained `_license_path()`/`_load_license_text()` helpers (mirrors the `resource_path()` frozen/source pattern), a new `LicenseDialog(QDialog)` (read-only `QTextEdit`, 440×360, themed), and a "View License" button wired into `_build_ui`. `pingguard.spec`: `('LICENSE.txt', '.')` added to `datas`.
+2. **Version display + update-available indicator:** `settings_dialog.py` gained a `version_label` reading `QApplication.instance().applicationVersion()`, plus a passive `UpdateCheckWorker` (same `"PingGuard"`/`"pingguard"` literals as `app.py`'s real `check_for_updates()`) instantiated on `SettingsDialog` init. Updates the label to `"Update available (vX.X.X)"` if a newer release exists — no popup, purely passive, separate from the existing startup `check_for_updates()` flow which still shows the full `UpdateDialog`.
+
+**Verified:** dev run (both features, both themes); a forced test with a hardcoded older version string confirmed the update-available label renders correctly (reverted before commit); a full PyInstaller build confirmed `LICENSE.txt` landed in the onedir output; built `.exe` re-tested against the same checklist.
+
+**VirusTotal:** v2.2.3's installer showed the same known Wacatac.B!ml + Arctic Wolf heuristic pair as prior releases (2/70) — confirmed via matching file hash to be re-evaluation noise, not a build issue. Not actioned.
+
+**Shipped as v2.2.3** — two separate commits, tagged and pushed, GitHub Actions green on both platform jobs, itch.io manually updated to current for the first time since v2.2.0.
+
+---
+
 ## Security Incident — Resolved (Session 20)
 
 Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or StartGuard. Full audit of both GitHub repos (commit history, workflow files, `requirements.txt`, `updater.py`, `reporter.py`) found no tampering. Fresh VirusTotal scans of both apps' actual release installers came back clean apart from well-documented single-vendor heuristic false positives (`Wacatac.B!ml` on PingGuard, a generic low-signal flag on StartGuard) — the same known PyInstaller false-positive pattern already documented in this project. No user-facing action was needed. The local dev machine was reinstalled; the project folder survived intact on a separate drive; the toolchain (git, Claude Code) was reinstalled and reconfigured.
@@ -296,10 +311,11 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 
 | File | Notes |
 |------|-------|
-| `main.py` | Version string `2.2.2` (bumped Session 22). AppUserModelID set before QApplication. |
+| `main.py` | Version string `2.2.3` (bumped Session 23). AppUserModelID set before QApplication. |
 | `app.py` | Never reads `game["exe"]` directly — only consumes `ping_worker.get_running_games()`. |
 | `main_window.py` | `_on_add_game()` checks `add_game()` return value; shows warning on duplicate. Never reads `game["exe"]` directly. `_populate_games()` filters on `enabled` boolean only — no category or search filtering. |
 | `settings.py` | `GameManager`. `add_game()` enforces unique names (case-insensitive), returns True/False. `migrate_game_endpoints()` restructured: each entry in `fixes` carries its own `is_stale` lambda and `region_note` — CS2, Dota 2, Call of Duty: Warzone, Apex Legends, Path of Exile, Valorant, and League of Legends all present. Apply loop optionally writes `exe` when the fix dict carries an `'exe'` key (Session 18); optionally updates `region_note` when the fix dict carries a `region_note_stale` lambda that matches the current value (Session 19) — both guarded, existing entries without those keys are unaffected. `migrate_game_regions()` unchanged. `update_game()` exists but has no UI caller. |
+| `settings_dialog.py` | **New row (Session 23).** `LicenseDialog` class, `_license_path()`/`_load_license_text()` helpers (mirrors `resource_path()`'s frozen/source pattern), "View License" button. `version_label` reading `QApplication.instance().applicationVersion()`, plus a passive `UpdateCheckWorker` on dialog init for a quiet update-available indicator — separate from `app.py`'s startup `check_for_updates()` popup flow. |
 | `games.py` | `DEFAULT_GAMES`. Apex exe is `["r5apex.exe", "r5apex_dx12.exe"]`. Apex endpoint is `100.50.20.250:9000` (WHOIS-confirmed AWS/EA, region_note "EA servers (US-East, AWS)"). OW2 split into (EU)/(NA). Warzone second endpoint is `185.34.106.103:3074` (confirmed Demonware). Path of Exile endpoint is `34.144.246.52:6112` (WHOIS-confirmed Google Cloud, region_note "South Africa servers (Google Cloud)"); exe is `["PathOfExile.exe", "PathOfExileSteam.exe"]`. Valorant and League of Legends region_note corrected to "Riot account/API layer (not match server)" (Session 19). |
 | `ping_engine.py` | `get_process_names_for_game()` + `_as_list()` helper. `check_running_games()` matches alias-set overlap. `tcp_ping()` reused directly to verify Warzone, Apex, and PoE endpoints. `ping_game()` is first-success-wins — walks endpoints in order, returns on first success. |
 | `game_detector.py` | Scans Steam/Epic/Riot/Battle.net for installed games. All detectors independently try/except. `winreg` import guarded behind a platform check placed before any unguarded reference (Session 20, macOS build support). |
@@ -311,7 +327,7 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 | `trace_connections.py` | Standalone diagnostic script — not part of the shipped app. Uses `psutil` to list a named running process's active connections. Built for Warzone endpoint verification; reusable for any game audit going forward. |
 | `constants.py` | Discord webhook (gitignored). |
 | `updater.py` | Auto-update shared logic. Needed zero changes for the Windows onedir migration (Session 21). **Rewritten platform-explicit (Session 22):** `_find_installer_url()` branches on `sys.platform` (win32/darwin/fails-closed empty string); `_start_download()` derives extension per platform; `_on_download_done()` is a clean win32/darwin two-way branch; `check_failed` signal now carries a reason (`"error"`/`"no_asset"`). |
-| `pingguard.spec` | darwin-only `BUNDLE()` added; darwin build mode switched onefile → onedir (Session 20). **Windows now also onedir (Session 21):** new `elif sys.platform == 'win32':` branch mirrors the darwin `COLLECT()` pattern; `exclude_binaries` and the binaries/datas exclusion widened from darwin-only to `('darwin', 'win32')`. |
+| `pingguard.spec` | darwin-only `BUNDLE()` added; darwin build mode switched onefile → onedir (Session 20). **Windows now also onedir (Session 21):** new `elif sys.platform == 'win32':` branch mirrors the darwin `COLLECT()` pattern; `exclude_binaries` and the binaries/datas exclusion widened from darwin-only to `('darwin', 'win32')`. **Session 23:** `('LICENSE.txt', '.')` added to `datas` so the license text ships inside the onedir output on both platforms. |
 | `PingGuard.iss` | **Updated Session 21:** `[Files]` section's Windows source changed from a single named file to a recursive wildcard (`dist\PingGuard\*`, `recursesubdirs createallsubdirs`) to package the full onedir output. `MyAppVersion` bumped 2.2.0 → 2.2.1. |
 | `.github/workflows/build-macos-test.yml` | New (Session 20). Manual `workflow_dispatch` only, macos-14 runner, builds + zips `.app` via `ditto`, uploads as a workflow artifact — not part of the tag-triggered release pipeline. Superseded for real releases by `build.yml`'s `build-macos` job (Session 22), but left in place as a standalone manual test workflow. |
 | `.github/workflows/build.yml` | **Updated Session 22:** new `build-macos` job (`runs-on: macos-14`, `needs: build`) added alongside the existing Windows `build` job. Same single tag trigger (`v[0-9]*.[0-9]*.[0-9]*`) covers both. Zips the `.app` via `ditto` and attaches `PingGuard_v{version}_macOS.zip` to the Release via `softprops/action-gh-release@v2`. |
@@ -346,6 +362,7 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 | v2.2.0 | ✅ Shipped | Per-game region management, full 21-game endpoint audit, exe staleness check |
 | v2.2.1 | ✅ Shipped (GitHub only — itch.io pending) | Windows onedir migration, fixes onefile self-extraction auto-update crash |
 | v2.2.2 | ✅ Shipped (GitHub only — itch.io pending) | macOS auto-update fixed end-to-end — tag-triggered `build-macos` job + platform-explicit `updater.py` rewrite, verified on real hardware |
+| v2.2.3 | ✅ Shipped (GitHub + itch.io) | In-app license viewer (LicenseDialog, "View License" button, LICENSE.txt bundled via pingguard.spec) + passive version/update-available indicator in Settings. itch.io manually updated to current for the first time since v2.2.0 |
 | v2.3.0 | Tentative | Game search / server auto-fill — psutil approach is the leading candidate; only proceeds if a workable implementation is confirmed |
 | v3.0.0 | Future | Network diagnostics: traceroute, hop latency, ISP ID, packet loss. Real-time per-match server detection is a confirmed motivation (dynamic datacenter assignment observed on both Warzone and Apex). Elevation approach (scapy vs. raw sockets) not yet decided. |
 
@@ -374,3 +391,5 @@ Nathan's dev PC had a genuine malware infection, unrelated to PingGuard or Start
 - **v3.0.0 elevation:** scapy vs. manual raw sockets — not decided.
 - **Tray icon:** still shows generic blue circle instead of shield art. Dev's call to leave as low priority.
 - **FFXIV `neolobby06.ffxiv.com` lead** — found during Session 19 desk audit, genuine named per-datacenter lobby server for Chaos/EU data center. Not yet WHOIS-confirmed or live-trace-verified. Stronger regional-split candidate than the current `frontier.ffxiv.com` global entry.
+- **StartGuard's `LICENSE.txt` still shows "StartGuard Licence" as its title** (Session 23) — needs the same fix applied to match the shared "JackalNode Licence" title. StartGuard's own responsibility, for a dedicated StartGuard session, not this one.
+- **Console warning observed during Session 23's theme-toggle testing:** `QFont::setPointSize: Point size <= 0 (-1), must be greater than 0`. Non-fatal — both themes rendered correctly, no crash. Root cause not investigated; likely in `MainWindow.apply_theme()`'s rebuild path. Predates Session 23's changes. Worth a dedicated look in a future session.
