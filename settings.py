@@ -244,6 +244,50 @@ def migrate_game_regions(games_list):
     return changed
 
 
+STATUS_SOURCE_MIGRATIONS = {
+    "Valorant": {
+        "status_platform": "valorant",
+        "status_shards": {
+            "EU": "eu", "NA": "na", "Asia": "ap", "Korea": "kr",
+            "SA": "latam", "Brazil": "br", "OCE": "ap", "Africa": "eu",
+        },
+        "region_note": "Riot Official Status",
+    },
+    "League of Legends": {
+        "status_platform": "lol",
+        "status_shards": {
+            "EU": "euw1", "NA": "na1", "Asia": "kr1", "Korea": "kr1",
+            "SA": "la1", "Brazil": "br1", "OCE": "oc1", "Africa": "euw1",
+        },
+        "region_note": "Riot Official Status",
+    },
+}
+
+def migrate_game_status_source(games_list):
+    """Move Valorant and League of Legends from TCP-ping endpoints to
+    Riot's real status-feed check, and keep their status_shards map current.
+    Existing users' saved games.json may have the old single-shard
+    status_shard field, the old endpoints-based config, or nothing at all -
+    all get patched to the current status_shards shape on load, same as the
+    other migrate_* functions."""
+    changed = False
+    for game in games_list:
+        fix = STATUS_SOURCE_MIGRATIONS.get(game.get("name"))
+        if not fix:
+            continue
+        if (game.get("status_shards") == fix["status_shards"]
+                and "status_shard" not in game
+                and "endpoints" not in game):
+            continue
+        game["status_platform"] = fix["status_platform"]
+        game["status_shards"] = fix["status_shards"]
+        game["region_note"] = fix["region_note"]
+        game.pop("status_shard", None)
+        game.pop("endpoints", None)
+        changed = True
+    return changed
+
+
 class GameManager:
     def __init__(self):
         self._games = []
@@ -256,6 +300,8 @@ class GameManager:
                     self._games = json.load(f)
                 changed = migrate_game_endpoints(self._games)
                 if migrate_game_regions(self._games):
+                    changed = True
+                if migrate_game_status_source(self._games):
                     changed = True
                 if changed:
                     self.save()

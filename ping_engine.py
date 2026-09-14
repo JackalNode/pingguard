@@ -21,6 +21,56 @@ class PingResult:
         self.timestamp = datetime.now().isoformat()
 
 
+class StatusResult:
+    def __init__(self, game_name, status, title=None, error=None):
+        self.game_name = game_name
+        self.status = status  # "online", "notice", "issue", or "unknown"
+        self.title = title
+        self.error = error
+        self.timestamp = datetime.now().isoformat()
+
+
+def check_riot_status(game, user_region, timeout=5.0):
+    """
+    Check Riot's official public status feed instead of pinging a server -
+    used for games with no stable, pingable real match-server endpoint
+    (League of Legends, Valorant). Confirmed live via browser DevTools
+    against status.riotgames.com - this is the exact JSON that page
+    itself reads, no API key required.
+
+    Shard is resolved from the game's status_shards map using the user's
+    configured region; falls back to the first available shard only if
+    the map is missing an entry for some reason, since every shipped map
+    now covers all real Settings values.
+    """
+    platform = game.get("status_platform")
+    shards = game.get("status_shards", {})
+    shard = shards.get(user_region) or next(iter(shards.values()), None)
+    if not platform or not shard:
+        return StatusResult(game["name"], "unknown", error="No status shard configured")
+    url = f"https://{platform}.secure.dyn.riotcdn.net/channels/public/x/status/{shard}.json"
+    try:
+        import requests
+
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+
+        entries = data.get("incidents", []) + data.get("maintenances", [])
+        if not entries:
+            return StatusResult(game["name"], "online")
+        worst = max(entries, key=lambda e: e.get("updated_at", ""))
+        severity = worst.get("incident_severity") or worst.get("maintenance_status") or "info"
+        title = next(
+            (t["content"] for t in worst.get("titles", []) if t.get("locale") == "en_US"),
+            "Service notice"
+        )
+        status = "notice" if severity == "info" else "issue"
+        return StatusResult(game["name"], status, title=title)
+    except Exception as e:
+        return StatusResult(game["name"], "unknown", error=str(e))
+
+
 def tcp_ping(host, port, timeout=3.0):
     """
     Measure TCP connection time to host:port.
@@ -167,9 +217,17 @@ class PingWorker(QObject):
         threading.Thread(target=wait_and_signal, daemon=True).start()
 
     def _ping_one(self, game):
-        result = ping_game(game)
         ts = datetime.now().isoformat()
-        self.game_manager.update_ping(game["name"], result.ms, ts)
+        if game.get("status_platform"):
+            result = check_riot_status(game, self.settings.get("user_region", "EU"))
+            self.game_manager.update_game(game["name"], {
+                "last_checked": ts,
+                "last_status": result.status,
+                "last_status_title": result.title,
+            })
+        else:
+            result = ping_game(game)
+            self.game_manager.update_ping(game["name"], result.ms, ts)
         self.result_ready.emit(result)
 
     def ping_single(self, game):

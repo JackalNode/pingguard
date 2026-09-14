@@ -22,20 +22,31 @@ class SessionLogger:
             writer.writerow(["timestamp", "game", "ping_ms", "status", "endpoint", "error"])
 
     def log(self, result):
-        """Log a PingResult to the session file."""
-        from games import get_ping_status
-        status, _ = get_ping_status(result.ms)
+        """Log a PingResult or StatusResult to the session file."""
+        from ping_engine import StatusResult
         try:
             with open(self.log_file, "a", newline="") as f:
                 writer = csv.writer(f)
-                writer.writerow([
-                    result.timestamp,
-                    result.game_name,
-                    result.ms if result.ms is not None else "timeout",
-                    status,
-                    result.endpoint_used or "",
-                    result.error or ""
-                ])
+                if isinstance(result, StatusResult):
+                    writer.writerow([
+                        result.timestamp,
+                        result.game_name,
+                        "n/a",
+                        result.status,
+                        "riot-status",
+                        result.error or result.title or ""
+                    ])
+                else:
+                    from games import get_ping_status
+                    status, _ = get_ping_status(result.ms)
+                    writer.writerow([
+                        result.timestamp,
+                        result.game_name,
+                        result.ms if result.ms is not None else "timeout",
+                        status,
+                        result.endpoint_used or "",
+                        result.error or ""
+                    ])
         except Exception as e:
             print(f"Log error: {e}")
 

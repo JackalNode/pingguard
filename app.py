@@ -11,7 +11,7 @@ from PyQt6.QtCore import QTimer, Qt, QObject
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QBrush
 
 from settings import Settings, GameManager
-from ping_engine import PingWorker
+from ping_engine import PingWorker, StatusResult
 from main_window import MainWindow
 from logger import SessionLogger
 from updater import check_for_updates
@@ -208,7 +208,15 @@ class PingGuardApp(QObject):
         if self.window:
             self.window.update_game_ping(result)
 
-        # Alert check
+        if isinstance(result, StatusResult):
+            # Riot status check, not a ping - skip the ms/threshold logic
+            # entirely, and only alert on a real reported issue, not on
+            # "online" or an informational "notice" (e.g. restricted
+            # queue times) - that shouldn't pop a warning every check.
+            if result.status == "issue":
+                self._alert_unreachable(result)
+            return
+
         threshold = self.settings.get("alert_threshold_ms", 150)
         if result.ms is not None and result.ms > threshold:
             self._alert_high_ping(result)

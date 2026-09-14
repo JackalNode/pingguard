@@ -16,6 +16,7 @@ from add_game_dialog import AddGameDialog
 from report_dialog import ReportDialog
 from constants import DISCORD_REPORT_WEBHOOK
 from theme import get_theme
+from ping_engine import StatusResult
 import datetime
 import sys
 import os
@@ -249,6 +250,7 @@ class GameRow(QFrame):
     def __init__(self, game, theme, parent=None):
         super().__init__(parent)
         self.game = game
+        self.is_status_game = bool(game.get("status_platform"))
         self.theme = theme
         self._expanded = False
         self._history = []
@@ -301,13 +303,19 @@ class GameRow(QFrame):
         layout.addStretch()
 
         self.spark = PingBar(theme)
+        if self.is_status_game:
+            self.spark.setVisible(False)
         layout.addWidget(self.spark)
 
         self.ping_label = QLabel("—")
         self.ping_label.setFont(QFont("Consolas", 13, QFont.Weight.Bold))
         self.ping_label.setStyleSheet(f"color: {theme['text_faint']};")
-        self.ping_label.setFixedWidth(65)
-        self.ping_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        if self.is_status_game:
+            self.ping_label.setWordWrap(True)
+            self.ping_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        else:
+            self.ping_label.setFixedWidth(65)
+            self.ping_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.ping_label)
 
         self.report_btn = QPushButton("⚠")
@@ -397,6 +405,25 @@ class GameRow(QFrame):
         # Refresh chart if expanded
         if self._expanded:
             self.chart.set_history(history, color)
+
+    def update_status(self, status, title):
+        self._last_ms = None
+        colors = {
+            "online": self.theme["success"],
+            "notice": self.theme["warning"],
+            "issue": self.theme["danger"],
+            "unknown": self.theme["text_very_dim"],
+        }
+        labels = {
+            "online": "Online",
+            "notice": title or "Notice",
+            "issue": title or "Issue",
+            "unknown": "Unknown",
+        }
+        color = colors.get(status, self.theme["text_very_dim"])
+        self.dot.set_color(color)
+        self.ping_label.setText(labels.get(status, "Unknown"))
+        self.ping_label.setStyleSheet(f"color: {color};")
 
 
 class MainWindow(QMainWindow):
@@ -543,7 +570,10 @@ class MainWindow(QMainWindow):
             row = GameRow(game, self.theme)
             row.report_clicked.connect(self._on_report)
 
-            if game.get("last_ping") is not None:
+            if game.get("status_platform"):
+                if game.get("last_status"):
+                    row.update_status(game["last_status"], game.get("last_status_title"))
+            elif game.get("last_ping") is not None:
                 row.update_ping(game["last_ping"], game.get("ping_history", []))
 
             self.game_rows[game["name"]] = row
@@ -551,10 +581,14 @@ class MainWindow(QMainWindow):
 
     def update_game_ping(self, result):
         row = self.game_rows.get(result.game_name)
-        if row:
-            game = next((g for g in self.game_manager.games if g["name"] == result.game_name), None)
-            history = game.get("ping_history", []) if game else []
-            row.update_ping(result.ms, history)
+        if not row:
+            return
+        if isinstance(result, StatusResult):
+            row.update_status(result.status, result.title)
+            return
+        game = next((g for g in self.game_manager.games if g["name"] == result.game_name), None)
+        history = game.get("ping_history", []) if game else []
+        row.update_ping(result.ms, history)
 
     def set_checking(self, is_checking):
         if is_checking:

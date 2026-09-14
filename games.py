@@ -22,11 +22,15 @@ DEFAULT_GAMES = [
         "exe_linux": "VALORANT-Win64-Shipping",
         "icon": "🎯",
         "category": "FPS",
-        "endpoints": [
-            {"host": "euw1.pvp.net", "port": 443},
-            {"host": "eu.api.riotgames.com", "port": 443},
-        ],
-        "region_note": "Riot account/API layer (not match server)"
+        "status_platform": "valorant",
+        # Live-verified against Riot's real status endpoints this session:
+        # na/eu/ap/kr/latam/br all confirmed distinct; oce.json and sa.json
+        # both 404 - no standalone Valorant OCE/SA shard, OCE folds into ap.
+        "status_shards": {
+            "EU": "eu", "NA": "na", "Asia": "ap", "Korea": "kr",
+            "SA": "latam", "Brazil": "br", "OCE": "ap", "Africa": "eu",
+        },
+        "region_note": "Riot Official Status"
     },
     {
         "name": "CS2",
@@ -177,11 +181,15 @@ DEFAULT_GAMES = [
         "exe_linux": "LeagueOfLegends",
         "icon": "🏆",
         "category": "MOBA",
-        "endpoints": [
-            {"host": "euw1.api.riotgames.com", "port": 443},
-            {"host": "eu.api.riotgames.com", "port": 443},
-        ],
-        "region_note": "Riot account/API layer (not match server)"
+        "status_platform": "lol",
+        # Live-verified against Riot's real status endpoints this session.
+        # League has no general APAC shard, so Asia and Korea intentionally
+        # collapse to the same kr1 value - not a bug.
+        "status_shards": {
+            "EU": "euw1", "NA": "na1", "Asia": "kr1", "Korea": "kr1",
+            "SA": "la1", "Brazil": "br1", "OCE": "oc1", "Africa": "euw1",
+        },
+        "region_note": "Riot Official Status"
     },
     {
         "name": "Dota 2",

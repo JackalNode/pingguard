@@ -157,7 +157,7 @@ class SettingsDialog(QDialog):
         form.addRow("Alert if ping above:", self.alert_spin)
 
         self.region_combo = QComboBox()
-        for r in ["EU", "NA", "Asia", "SA", "OCE"]:
+        for r in ["EU", "NA", "Asia", "Korea", "SA", "Brazil", "OCE", "Africa"]:
             self.region_combo.addItem(r)
         self.region_combo.setCurrentText(self.settings.get("user_region", "EU"))
         form.addRow("Your Region:", self.region_combo)
