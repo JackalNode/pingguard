@@ -13,6 +13,7 @@ from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QIcon, QPixmap, QBrush, Q
 from PyQt6.QtCore import QPointF
 from games import get_ping_status, DEFAULT_GAMES
 from add_game_dialog import AddGameDialog
+from remove_game_dialog import RemoveGameDialog
 from report_dialog import ReportDialog
 from constants import DISCORD_REPORT_WEBHOOK
 from theme import get_theme
@@ -545,6 +546,12 @@ class MainWindow(QMainWindow):
         add_btn.setStyleSheet(self._button_style(t['btn_success_bg'], t['btn_success_hover'], text_color=t['btn_success_text']))
         add_btn.clicked.connect(self._on_add_game)
         bottom.addWidget(add_btn)
+
+        remove_btn = QPushButton("- Remove Game")
+        remove_btn.setFixedHeight(32)
+        remove_btn.setStyleSheet(self._button_style(t['btn_neutral_bg'], t['btn_neutral_hover']))
+        remove_btn.clicked.connect(self._on_remove_game)
+        bottom.addWidget(remove_btn)
         bottom.addStretch()
 
         open_logs_btn = QPushButton("📁 Session Logs")
@@ -632,6 +639,14 @@ class MainWindow(QMainWindow):
                         "Duplicate Game",
                         f'A game named "{game_data["name"]}" is already in your list.'
                     )
+
+    def _on_remove_game(self):
+        dialog = RemoveGameDialog(self.theme, self.game_manager.get_enabled(), self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name = dialog.get_selected_game_name()
+            if name is not None:
+                self.game_manager.update_game(name, {"enabled": False})
+                self._populate_games()
 
     def _on_report(self, game):
         webhook = DISCORD_REPORT_WEBHOOK
