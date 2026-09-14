@@ -5,7 +5,8 @@ import os
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QSpinBox, QFormLayout, QFrame, QFileDialog
+    QPushButton, QComboBox, QSpinBox, QFormLayout, QFrame, QFileDialog,
+    QWidget
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -67,11 +68,21 @@ class ReportSendWorker(QThread):
 
 
 class AddGameDialog(QDialog):
-    def __init__(self, theme, parent=None):
+    def __init__(self, theme, existing_games, parent=None):
         super().__init__(parent)
         self.theme = theme
         self.detected_games = []  # populated once the background scan finishes
         self._last_detected_install_path = None
+        # Names of games that are already known to PingGuard but currently
+        # disabled (e.g. unchecked in the first-run wizard). Re-adding one
+        # of these just flips it back on with its existing endpoint data -
+        # GameManager.add_game() discards everything else submitted here,
+        # so the manual fields are pointless noise for this case and get
+        # hidden once a match is detected.
+        self._disabled_known_names = {
+            g["name"].lower() for g in existing_games if not g.get("enabled", True)
+        }
+        self._matched_known_game = False
         self.setWindowTitle("Add Game")
         self.setModal(True)
         self.setFixedSize(420, 555)
@@ -146,13 +157,33 @@ class AddGameDialog(QDialog):
         divider.setStyleSheet(f"background: {t['border']}; max-height: 1px;")
         layout.addWidget(divider)
 
-        form = QFormLayout()
-        form.setSpacing(10)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        name_form = QFormLayout()
+        name_form.setSpacing(10)
+        name_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("e.g. My Game")
-        form.addRow("Game Name:", self.name_input)
+        self.name_input.textChanged.connect(self._check_known_game)
+        name_form.addRow("Game Name:", self.name_input)
+
+        layout.addLayout(name_form)
+
+        self.known_game_label = QLabel(
+            "✓ This is one of PingGuard's original games — it already knows "
+            "the server address. Just click Add Game below."
+        )
+        self.known_game_label.setStyleSheet(f"color: {t['success']}; font-size: 11px;")
+        self.known_game_label.setWordWrap(True)
+        self.known_game_label.hide()
+        layout.addWidget(self.known_game_label)
+
+        self.details_container = QWidget()
+        details_layout = QVBoxLayout(self.details_container)
+        details_layout.setContentsMargins(0, 0, 0, 0)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.exe_input = QLineEdit()
         self.exe_input.setPlaceholderText("e.g. mygame.exe")
@@ -200,7 +231,8 @@ class AddGameDialog(QDialog):
             self.icon_input.addItem(icon)
         form.addRow("Icon:", self.icon_input)
 
-        layout.addLayout(form)
+        details_layout.addLayout(form)
+        layout.addWidget(self.details_container)
 
         # --- Game request report ---
         report_row = QHBoxLayout()
@@ -281,6 +313,23 @@ class AddGameDialog(QDialog):
         self.name_input.setText(game.name)
         self._last_detected_install_path = game.install_path
 
+    def _check_known_game(self, _text=None):
+        """
+        Shows/hides the manual-entry fields based on whether the current
+        Game Name matches a game PingGuard already knows about but has
+        disabled (e.g. unchecked in the first-run wizard). Runs on every
+        Game Name keystroke, and also fires automatically when a detected
+        installed game is picked, since that sets name_input's text too.
+
+        GameManager.add_game() re-enables a disabled entry by name match
+        alone and ignores every other field submitted here, so once
+        matched there is nothing left for the user to fill in.
+        """
+        name = self.name_input.text().strip().lower()
+        self._matched_known_game = bool(name) and name in self._disabled_known_names
+        self.details_container.setVisible(not self._matched_known_game)
+        self.known_game_label.setVisible(self._matched_known_game)
+
     def _browse_for_exe(self):
         start_dir = self._last_detected_install_path or ""
         path, _ = QFileDialog.getOpenFileName(
@@ -318,8 +367,16 @@ class AddGameDialog(QDialog):
 
     def get_game_data(self):
         name = self.name_input.text().strip()
+        if not name:
+            return None
+        if self._matched_known_game:
+            # Re-adding a known-but-disabled game. GameManager.add_game()
+            # matches by name and re-enables the existing entry wholesale -
+            # it ignores everything else in this dict, so there's nothing
+            # else worth sending.
+            return {"name": name}
         host = self.host_input.text().strip()
-        if not name or not host:
+        if not host:
             return None
         return {
             "name": name,

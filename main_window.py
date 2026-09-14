@@ -620,7 +620,7 @@ class MainWindow(QMainWindow):
         self.check_now_requested.emit()
 
     def _on_add_game(self):
-        dialog = AddGameDialog(self.theme, self)
+        dialog = AddGameDialog(self.theme, self.game_manager.games, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             game_data = dialog.get_game_data()
             if game_data:
