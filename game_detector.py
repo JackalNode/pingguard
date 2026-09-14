@@ -167,17 +167,6 @@ def detect_epic_games():
 # Riot Games (League of Legends, Valorant, etc.)
 # ---------------------------------------------------------------------------
 
-# Riot's internal product codes don't read well as display names -
-# translate the ones we know about. Anything unrecognised falls back
-# to a cleaned-up version of the raw code so it still shows up in the
-# dropdown rather than vanishing silently.
-_RIOT_PRODUCT_NAMES = {
-    "league_of_legends.live": "League of Legends",
-    "valorant.live": "VALORANT",
-    "lor.live": "Legends of Runeterra",
-}
-
-
 def detect_riot_games():
     games = []
     installs_path = r"C:\ProgramData\Riot Games\RiotClientInstalls.json"
@@ -186,15 +175,15 @@ def detect_riot_games():
             return games
         with open(installs_path, "r", encoding="utf-8", errors="ignore") as f:
             data = json.load(f)
-        # Top-level keys are Riot's internal product codes, each
-        # mapped to its install path on disk.
-        for product_code, install_path in data.items():
-            if not isinstance(install_path, str) or not os.path.isdir(install_path):
+        # "associated_client" maps each per-game install folder path
+        # (the keys) to the Riot Client launcher exe that manages it
+        # (the values, not useful here) - so we iterate the keys.
+        associated_client = data.get("associated_client", {})
+        for install_path in associated_client.keys():
+            install_path = install_path.rstrip("\\/")
+            if not os.path.isdir(install_path):
                 continue
-            display_name = _RIOT_PRODUCT_NAMES.get(
-                product_code,
-                product_code.replace(".live", "").replace("_", " ").title(),
-            )
+            display_name = os.path.basename(install_path)
             games.append(DetectedGame(display_name, "Riot", install_path))
     except (OSError, json.JSONDecodeError):
         pass
