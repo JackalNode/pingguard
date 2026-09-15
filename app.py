@@ -245,6 +245,16 @@ class PingGuardApp(QObject):
             self.window.show_running_games(list(running))
 
     def _auto_tick(self):
+        # Full pause while any monitored game is running: no countdown,
+        # no auto-fired ping_all(), no notifications (which only ever
+        # come from a ping result) - by design, not just as a side
+        # effect. The one-off check_on_game_launch check (_on_game_detected,
+        # 5s after a game is first detected) is untouched and still fires -
+        # that's the pre-match reading this exists to give you. Resumes
+        # on its own once _check_running_games() (still ticking every 10s
+        # on its own timer) reports nothing running.
+        if self.ping_worker.get_running_games():
+            return
         self._countdown -= 1
         if self.window:
             self.window.set_countdown(self._countdown)

@@ -218,7 +218,20 @@ class PingWorker(QObject):
 
     def _ping_one(self, game):
         ts = datetime.now().isoformat()
+        # Warm-up pass, result discarded: fires the same real check once
+        # first and throws the result away before the one that actually
+        # gets recorded. Confirmed via live A/B testing (jitter_test.py /
+        # dns_isolation_test.py, see PingGuard_Context.md) that an
+        # occasional DNS-cache-miss penalty (150-450ms observed) lands
+        # entirely on whichever call is first to touch a given hostname
+        # after its OS-level cache entry expires, and never on a second
+        # call to the same host moments later - 0/135 test rounds saw a
+        # second call inherit the first call's spike. Re-resolving fresh
+        # every cycle (rather than caching the IP ourselves) also avoids
+        # ever pinging a stale address for games with dynamic per-match
+        # server assignment (see Warzone/Apex findings above).
         if game.get("status_platform"):
+            check_riot_status(game, self.settings.get("user_region", "EU"))
             result = check_riot_status(game, self.settings.get("user_region", "EU"))
             self.game_manager.update_game(game["name"], {
                 "last_checked": ts,
@@ -226,6 +239,7 @@ class PingWorker(QObject):
                 "last_status_title": result.title,
             })
         else:
+            ping_game(game)
             result = ping_game(game)
             self.game_manager.update_ping(game["name"], result.ms, ts)
         self.result_ready.emit(result)
