@@ -36,10 +36,11 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # disabled Session 28 - UPX compression is a well-documented AV false-positive
-                # trigger; v2.2.4's Windows installer picked up 3 new "trojan" flags (Avira,
-                # Cynet, WithSecure) on VirusTotal that v2.2.3 didn't have. Testing this as the
-                # first, cheapest mitigation before touching PyInstaller's own version.
+    upx=True,   # re-enabled Session 28 - disabling UPX (tested as v2.2.5) did NOT reduce AV
+                # flags: Avira, DeepInstinct, and WithSecure all still flagged the UPX-off build
+                # exactly as they flagged v2.2.4 (UPX-on). Ruled out as the cause; reverted rather
+                # than carry the size/perf cost of no compression for nothing. Next theory:
+                # unpinned pyinstaller>=6.0.0 in requirements.txt (see pyinstaller/pyinstaller#8164).
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -73,7 +74,7 @@ elif sys.platform == 'win32':
         a.binaries,
         a.datas,
         strip=False,
-        upx=False,  # see upx=False note above (Session 28 AV false-positive mitigation)
+        upx=True,   # see note above - UPX-disable tested and ruled out (Session 28)
         upx_exclude=[],
         name='PingGuard',
     )
