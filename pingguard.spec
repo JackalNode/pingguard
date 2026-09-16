@@ -36,7 +36,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,  # disabled Session 28 - UPX compression is a well-documented AV false-positive
+                # trigger; v2.2.4's Windows installer picked up 3 new "trojan" flags (Avira,
+                # Cynet, WithSecure) on VirusTotal that v2.2.3 didn't have. Testing this as the
+                # first, cheapest mitigation before touching PyInstaller's own version.
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -70,7 +73,7 @@ elif sys.platform == 'win32':
         a.binaries,
         a.datas,
         strip=False,
-        upx=True,
+        upx=False,  # see upx=False note above (Session 28 AV false-positive mitigation)
         upx_exclude=[],
         name='PingGuard',
     )
